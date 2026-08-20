@@ -1,0 +1,5 @@
+BTMobile V0.1.4 GitHub Actions build
+status=failure
+source_commit=ca387b3f8ad458f67bdb3de209acccae4a1f8ce8
+runner=macOS
+generated_utc=2026-08-20T01:40:54Z
