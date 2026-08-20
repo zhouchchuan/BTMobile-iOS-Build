@@ -2,6 +2,7 @@
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -17,6 +18,18 @@ def main() -> int:
     exit_path = temp / "xcodebuild.exit"
     result_bundle = temp / "BuildResult.xcresult"
     derived = temp / "DerivedData"
+
+    # The compact CI overlay intentionally excludes this upstream Firebase plist.
+    # Restore the exact V0.1.3 baseline file before Xcode evaluates build inputs.
+    script_dir = pathlib.Path(__file__).resolve().parent
+    firebase_source = script_dir / "GoogleService-Info.plist"
+    firebase_target = pathlib.Path.cwd() / "iTorrent" / "Core" / "Assets" / "GoogleService-Info.plist"
+    if not firebase_source.is_file():
+        print(f"Missing CI Firebase plist: {firebase_source}", file=sys.stderr)
+        return 90
+    firebase_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(firebase_source, firebase_target)
+    print(f"Restored baseline Firebase plist: {firebase_target}", flush=True)
 
     if result_bundle.exists():
         subprocess.run(["rm", "-rf", str(result_bundle)], check=False)
