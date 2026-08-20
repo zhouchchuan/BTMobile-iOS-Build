@@ -1,0 +1,1 @@
+BTMobile V0.1.6 exact-files build 2026-08-20: preserve V0.1.5, add image viewer, TXT editor, encrypted 7z multipart support
