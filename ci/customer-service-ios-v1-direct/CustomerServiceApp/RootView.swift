@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import AVKit
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject var vm: ChatViewModel
@@ -32,7 +33,7 @@ struct LoginView: View {
                             .frame(maxWidth:.infinity).padding(.vertical,10)
                     }.buttonStyle(.borderedProminent).controlSize(.large).disabled(vm.isBusy)
                     Text("service.linkyou.win:9443").font(.caption).foregroundStyle(.tertiary).padding(.top,6)
-                    Text("登录后会申请系统通知权限。服务器配置 APNs Provider Key 后，锁屏与后台状态也可收到访客消息通知。")
+                    Text("V1.0.3 支持免费的 PWA 锁屏通知：登录后可从右上角菜单打开 Safari 设置，无需购买 Apple Developer 推送服务。")
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }.padding(24)
             }
@@ -44,6 +45,7 @@ struct MainView: View {
     @EnvironmentObject var vm: ChatViewModel
     @State private var path:[String] = []
     @State private var ending: ChatSession?
+    @State private var showPushHelp = false
 
     var body: some View {
         NavigationStack(path:$path) {
@@ -76,19 +78,36 @@ struct MainView: View {
                     HStack(spacing:6) { Circle().fill(vm.connected ? .green:.orange).frame(width:9,height:9); Text(vm.connected ? "实时在线":"连接中").font(.caption).foregroundStyle(.secondary) }
                 }
                 ToolbarItem(placement:.navigationBarTrailing) {
-                    Menu { Button("开启通知") { vm.requestPushPermission() }; Button("刷新会话") { Task { await vm.refreshChats() } }; Button("退出登录",role:.destructive){vm.logout()} } label:{Image(systemName:"ellipsis.circle")}
+                    Menu {
+                        Button("免费锁屏通知设置") { showPushHelp = true }
+                        Button("原生 APNs 通知（可选）") { vm.requestPushPermission() }
+                        Button("刷新会话") { Task { await vm.refreshChats() } }
+                        Button("退出登录",role:.destructive){vm.logout()}
+                    } label:{Image(systemName:"ellipsis.circle")}
                 }
             }
             .navigationDestination(for:String.self) { token in ChatView(sessionToken:token) }
             .onChange(of:vm.pendingOpenToken) { token in
-                guard let token, vm.chats.contains(where:{$0.token==token}) else { return }
-                if path.last != token { path.append(token) }
-                vm.pendingOpenToken = nil
+                guard let token else { return }
+                Task {
+                    await vm.refreshChats()
+                    guard vm.chats.contains(where:{$0.token==token}) else { return }
+                    if path.last != token { path.append(token) }
+                    vm.pendingOpenToken = nil
+                }
             }
             .confirmationDialog("结束本次客服服务？",isPresented:Binding(get:{ending != nil},set:{if !$0{ending=nil}}),titleVisibility:.visible) {
                 Button("结束服务",role:.destructive) { if let ending { Task { await vm.endService(ending) } }; ending=nil }
                 Button("取消",role:.cancel) { ending=nil }
             } message: { Text("会话记录不会删除。访客以后再次打开客服页面时，这个会话会重新出现在列表中继续沟通。") }
+            .alert("免费锁屏通知",isPresented:$showPushHelp) {
+                Button("打开 Safari") {
+                    if let url=URL(string:"https://service.linkyou.win:9443/staff") { UIApplication.shared.open(url) }
+                }
+                Button("取消",role:.cancel){}
+            } message: {
+                Text("Safari 打开客服工作台后：分享 → 添加到主屏幕 → 从桌面打开“小美客服” → 点“开启通知”。之后锁屏或后台也能收到访客消息提醒。")
+            }
         }
     }
 }
@@ -119,30 +138,49 @@ struct ChatView: View {
     @State private var text=""
     @State private var photoItem:PhotosPickerItem?
 
+    private var currentSession:ChatSession? {
+        if vm.selected?.token == sessionToken { return vm.selected }
+        return vm.chats.first(where:{$0.token == sessionToken})
+    }
+
     var body: some View {
         VStack(spacing:0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing:14) { ForEach(vm.messages) { message in MessageRow(message:message).id(message.id) } }.padding(.horizontal,12).padding(.vertical,18)
+                    if vm.loadingMessages && vm.activeSessionToken == sessionToken && vm.messages.isEmpty {
+                        VStack(spacing:10) { ProgressView(); Text("正在载入该访客会话…").font(.footnote).foregroundStyle(.secondary) }
+                            .frame(maxWidth:.infinity).padding(.top,80)
+                    } else {
+                        LazyVStack(spacing:14) {
+                            ForEach(vm.messages.filter { message in
+                                guard vm.activeSessionToken == sessionToken else { return false }
+                                guard let sid=currentSession?.id else { return false }
+                                return message.session_id == sid
+                            }) { message in MessageRow(message:message).id(message.id) }
+                        }.padding(.horizontal,12).padding(.vertical,18)
+                    }
                 }
                 .background(Color(.systemGroupedBackground))
-                .onChange(of:vm.messages.count) { _ in if let id=vm.messages.last?.id { withAnimation(.easeOut(duration:0.18)){proxy.scrollTo(id,anchor:.bottom)} } }
+                .onChange(of:vm.messages.count) { _ in if vm.activeSessionToken == sessionToken, let id=vm.messages.last?.id { withAnimation(.easeOut(duration:0.18)){proxy.scrollTo(id,anchor:.bottom)} } }
             }
             Divider()
             HStack(spacing:10) {
                 PhotosPicker(selection:$photoItem,matching:.any(of:[.images,.videos])) { Image(systemName:"photo.on.rectangle").font(.title3).frame(width:34,height:34) }
+                    .disabled(vm.activeSessionToken != sessionToken || vm.loadingMessages)
                     .onChange(of:photoItem) { item in guard let item else{return}; Task { await sendPicked(item); photoItem=nil } }
                 TextField("回复客户…",text:$text,axis:.vertical).lineLimit(1...5).textFieldStyle(.roundedBorder)
+                    .disabled(vm.activeSessionToken != sessionToken || vm.loadingMessages)
                 Button { let v=text;text="";Task{await vm.send(v)} } label:{Image(systemName:"paperplane.fill").font(.title3)}
-                    .disabled(text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+                    .disabled(text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || vm.activeSessionToken != sessionToken || vm.loadingMessages)
             }.padding(10).background(.ultraThinMaterial)
         }
         .task(id:sessionToken) { await vm.open(token:sessionToken) }
+        .onDisappear { vm.leaveConversation(token:sessionToken) }
         .toolbar {
             ToolbarItem(placement:.principal) {
                 VStack(spacing:1) {
-                    Text(vm.selected?.visitor_name ?? "访客").font(.headline)
-                    Text("IP \(vm.selected?.ip ?? "—")").font(.caption2).foregroundStyle(.secondary)
+                    Text(currentSession?.visitor_name ?? "访客").font(.headline)
+                    Text("IP \(currentSession?.ip ?? "—")").font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
@@ -150,7 +188,7 @@ struct ChatView: View {
     }
 
     private func sendPicked(_ item:PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type:Data.self) else { return }
+        guard vm.activeSessionToken == sessionToken, let data = try? await item.loadTransferable(type:Data.self) else { return }
         let type = item.supportedContentTypes.first ?? .jpeg
         let mime = type.preferredMIMEType ?? "image/jpeg"
         let ext = type.preferredFilenameExtension ?? (mime.hasPrefix("video/") ? "mp4":"jpg")
