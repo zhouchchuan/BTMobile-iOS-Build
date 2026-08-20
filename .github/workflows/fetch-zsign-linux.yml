@@ -1,0 +1,55 @@
+name: Fetch zsign Linux x86_64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - customer-service-ios-v1.0.0
+    paths:
+      - '.github/workflows/fetch-zsign-linux.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official zsign v1.1.1
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 -o "$RUNNER_TEMP/zsign-linux-x86_64.tar.gz" \
+            https://github.com/zhlynn/zsign/releases/download/v1.1.1/zsign-linux-x86_64.tar.gz
+          echo '65873b256b8902715cc81c8c467e9dddb315a2b484c6d0f5fb2031bad819d8ba  '"$RUNNER_TEMP/zsign-linux-x86_64.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zsign"
+          tar -xzf "$RUNNER_TEMP/zsign-linux-x86_64.tar.gz" -C "$RUNNER_TEMP/zsign"
+          find "$RUNNER_TEMP/zsign" -maxdepth 2 -type f -ls
+          ZSIGN=$(find "$RUNNER_TEMP/zsign" -type f -name zsign -print -quit)
+          test -n "$ZSIGN"
+          chmod +x "$ZSIGN"
+          "$ZSIGN" --version || "$ZSIGN" -h | head
+      - name: Upload zsign
+        uses: actions/upload-artifact@v4
+        with:
+          name: zsign-linux-x86_64-v1.1.1
+          path: ${{ runner.temp }}/zsign
+          retention-days: 1
+      - name: Write result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p ci/zsign-fetch-results
+          {
+            echo "status=$JOB_STATUS"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "source_commit=$GITHUB_SHA"
+          } > ci/zsign-fetch-results/status.txt
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/zsign-fetch-results/status.txt
+          git commit -m "CI zsign fetch result: $JOB_STATUS" || exit 0
+          git pull --rebase origin customer-service-ios-v1.0.0
+          git push origin HEAD:customer-service-ios-v1.0.0
