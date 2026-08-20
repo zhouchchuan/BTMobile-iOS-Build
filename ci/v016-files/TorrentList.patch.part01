@@ -1,0 +1,161 @@
+     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+-        let id = "BTFileManagerCell"
+-        let cell = tableView.dequeueReusableCell(withIdentifier: id) ?? UITableViewCell(style: .subtitle, reuseIdentifier: id)
+         let item = items[indexPath.row]
+-        var content = cell.defaultContentConfiguration()
+-        content.text = item.name
+-        content.image = UIImage(systemName: iconName(for: item))
+-        content.secondaryText = item.isDirectory ? "文件夹" : ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file)
+-        content.secondaryTextProperties.color = .secondaryLabel
+-        cell.contentConfiguration = content
++        guard let cell = tableView.dequeueReusableCell(
++            withIdentifier: BTFileManagerCell.reuseIdentifier,
++            for: indexPath
++        ) as? BTFileManagerCell else {
++            return UITableViewCell()
++        }
++        cell.configure(item: item, iconName: iconName(for: item))
+         cell.accessoryType = item.isDirectory ? .disclosureIndicator : .none
+         return cell
+     }
+@@ -901,6 +1016,10 @@
+             presentArchiveMenu(for: item.url, sourceView: tableView.cellForRow(at: indexPath))
+         } else if item.isVideo {
+             navigateToVideo(item.url)
++        } else if item.isImage {
++            openImage(item.url)
++        } else if item.isEditableText {
++            openTextEditor(item.url)
+         } else {
+             share(item.url, sourceView: tableView.cellForRow(at: indexPath))
+         }
+@@ -911,20 +1030,55 @@
+         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+             guard let self else { return nil }
+             var actions: [UIMenuElement] = []
++
+             if item.isDirectory {
++                actions.append(UIAction(title: "打开文件夹", image: UIImage(systemName: "folder")) { [weak self] _ in
++                    self?.navigationController?.pushViewController(BTFileManagerViewController(directoryURL: item.url), animated: true)
++                })
+                 actions.append(UIAction(title: "设为下载目录", image: UIImage(systemName: "arrow.down.to.line.compact")) { [weak self] _ in
+                     try? self?.service.setDownloadDirectory(item.url)
+                     self?.reload()
+                 })
+-            }
+-            if item.isArchive {
++            } else if item.isArchive {
+                 actions.append(UIAction(title: "解压", image: UIImage(systemName: "archivebox")) { [weak self] _ in
+                     self?.extractArchive(item.url, password: nil)
+                 })
+                 actions.append(UIAction(title: "密码解压", image: UIImage(systemName: "lock.open")) { [weak self] _ in
+                     self?.promptArchivePassword(item.url)
+                 })
++                actions.append(UIAction(title: "用其他 App 打开", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
++                    self?.share(item.url, sourceView: tableView.cellForRow(at: indexPath))
++                })
++            } else if item.isVideo {
++                actions.append(UIAction(title: "播放", image: UIImage(systemName: "play.fill")) { [weak self] _ in
++                    self?.navigateToVideo(item.url)
++                })
++                actions.append(UIAction(title: "用其他 App 打开", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
++                    self?.share(item.url, sourceView: tableView.cellForRow(at: indexPath))
++                })
++            } else if item.isImage {
++                actions.append(UIAction(title: "查看图片", image: UIImage(systemName: "photo")) { [weak self] _ in
++                    self?.openImage(item.url)
++                })
++                actions.append(UIAction(title: "用其他 App 打开", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
++                    self?.share(item.url, sourceView: tableView.cellForRow(at: indexPath))
++                })
++            } else if item.isEditableText {
++                actions.append(UIAction(title: "查看 / 编辑文本", image: UIImage(systemName: "doc.text")) { [weak self] _ in
++                    self?.openTextEditor(item.url)
++                })
++                actions.append(UIAction(title: "用其他 App 打开", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
++                    self?.share(item.url, sourceView: tableView.cellForRow(at: indexPath))
++                })
++            } else {
++                actions.append(UIAction(title: "打开 / 分享", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
++                    self?.share(item.url, sourceView: tableView.cellForRow(at: indexPath))
++                })
+             }
++
++            actions.append(UIAction(title: "文件信息", image: UIImage(systemName: "info.circle")) { [weak self] _ in
++                self?.presentFileInfo(item)
++            })
+             actions.append(UIAction(title: "重命名", image: UIImage(systemName: "pencil")) { [weak self] _ in
+                 self?.promptRename(item.url)
+             })
+@@ -935,6 +1089,16 @@
+         }
+     }
+ 
++    func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
++        let item = items[indexPath.row]
++        let info = UIContextualAction(style: .normal, title: "信息") { [weak self] _, _, done in
++            self?.presentFileInfo(item)
++            done(true)
++        }
++        info.image = UIImage(systemName: "info.circle")
++        return UISwipeActionsConfiguration(actions: [info])
++    }
++
+     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+         let item = items[indexPath.row]
+         let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, done in
+@@ -948,18 +1112,55 @@
+         return UISwipeActionsConfiguration(actions: [delete, rename])
+     }
+ 
++    private func presentFileInfo(_ item: BTFileManagerService.Item) {
++        let type: String
++        if item.isDirectory {
++            type = "文件夹"
++        } else if item.pathExtension.isEmpty {
++            type = "文件"
++        } else {
++            type = item.pathExtension.uppercased()
++        }
++        let size = item.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: max(item.size, 0), countStyle: .file)
++        let modified: String
++        if let date = item.modificationDate {
++            let formatter = DateFormatter()
++            formatter.locale = Locale(identifier: "zh_CN")
++            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
++            modified = formatter.string(from: date)
++        } else {
++            modified = "未知"
++        }
++        let message = "类型：\(type)\n大小：\(size)\n修改时间：\(modified)\n位置：\(relativePath(item.url.deletingLastPathComponent()))"
++        let alert = UIAlertController(title: item.name, message: message, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: "好", style: .default))
++        present(alert, animated: true)
++    }
++
+     private func iconName(for item: BTFileManagerService.Item) -> String {
+         if item.isDirectory { return "folder.fill" }
+         if item.isArchive { return "archivebox.fill" }
+         if item.isVideo { return "play.rectangle.fill" }
+         switch item.pathExtension {
+-        case "jpg", "jpeg", "png", "gif", "webp", "heic": return "photo.fill"
++        case "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff": return "photo.fill"
++        case "txt": return "doc.text.fill"
+         case "mp3", "m4a", "aac", "flac", "wav", "ogg": return "music.note"
+         case "pdf": return "doc.richtext.fill"
+         default: return "doc.fill"
+         }
+     }
+ 
++    // MARK: V0.1.6 built-in viewers
++    private func openImage(_ url: URL) {
++        let controller = BTImageViewerViewController(fileURL: url)
++        navigationController?.pushViewController(controller, animated: true)
++    }
++
++    private func openTextEditor(_ url: URL) {
++        let controller = BTTextEditorViewController(fileURL: url)
++        navigationController?.pushViewController(controller, animated: true)
++    }
++
+     // MARK: File operations
