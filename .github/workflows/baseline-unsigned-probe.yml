@@ -1,0 +1,82 @@
+name: Upstream Unsigned Build Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/baseline-unsigned-probe.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btmobile-baseline-unsigned-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - run: brew install boost
+      - name: Build LibTorrent
+        working-directory: source
+        run: ./Submodules/LibTorrent-Swift/make.sh
+      - name: Build upstream unsigned
+        id: build
+        continue-on-error: true
+        working-directory: source
+        run: |
+          set +e
+          xcodebuild \
+            -workspace iTorrent.xcworkspace \
+            -scheme iTorrent \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build > "$RUNNER_TEMP/baseline.log" 2>&1
+          RC=$?
+          echo "$RC" > "$RUNNER_TEMP/baseline.exit"
+          grep -Ei 'error:|fatal error:|undefined symbols|linker command failed|BUILD FAILED' "$RUNNER_TEMP/baseline.log" | tail -200 > "$RUNNER_TEMP/baseline-errors.txt" || true
+          tail -200 "$RUNNER_TEMP/baseline.log" > "$RUNNER_TEMP/baseline-tail.txt" || true
+          exit "$RC"
+      - name: Write probe result
+        if: always()
+        env:
+          OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set +e
+          DIR="$GITHUB_WORKSPACE/ci-repo/ci/baseline-results"
+          rm -rf "$DIR" && mkdir -p "$DIR"
+          echo "outcome=$OUTCOME" > "$DIR/status.txt"
+          echo "run_id=$GITHUB_RUN_ID" >> "$DIR/status.txt"
+          for F in baseline.exit baseline-errors.txt baseline-tail.txt; do
+            [ -f "$RUNNER_TEMP/$F" ] && cp "$RUNNER_TEMP/$F" "$DIR/$F"
+          done
+          cd "$GITHUB_WORKSPACE/ci-repo"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/baseline-results
+          git commit -m "Baseline unsigned probe: $OUTCOME" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
