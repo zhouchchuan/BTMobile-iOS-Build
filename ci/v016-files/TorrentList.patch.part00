@@ -1,0 +1,196 @@
+--- a/iTorrent/Screens/TorrentList/TorrentListViewController.swift
++++ b/iTorrent/Screens/TorrentList/TorrentListViewController.swift
+@@ -7,6 +7,7 @@
+ 
+ import Combine
+ import CombineCocoa
++import ImageIO
+ import LibTorrent
+ import MvvmFoundation
+ import SwiftUI
+@@ -66,7 +67,7 @@
+                 pauseButton,
+                 fixedSpacing,
+                 rehashButton,
+-                .flexibleSpace(),
++                UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+                 deleteButton
+             ].compactMap { $0 } :
+             [
+@@ -518,7 +519,7 @@
+ }
+ 
+ 
+-// MARK: - BT Mobile 0.1.4 File Manager
++// MARK: - BT Mobile 0.1.5 File Manager
+ 
+ /// App-sandbox file manager used by BT Mobile 0.1.4. It intentionally does not
+ /// touch libtorrent discovery, tracker, DHT or peer logic. Download routing is
+@@ -536,11 +537,23 @@
+ 
+         var isArchive: Bool {
+             ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz"].contains(pathExtension)
++                || ArchiveExtractor.isSevenZipVolume(url)
+         }
+ 
+         var isVideo: Bool {
+             ["mp4", "m4v", "mov", "mkv", "avi", "flv", "webm", "ts", "m2ts", "wmv", "mpg", "mpeg"].contains(pathExtension)
+         }
++
++        /// V0.1.6: common image formats that can be viewed inside BTMobile.
++        var isImage: Bool {
++            ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff"].contains(pathExtension)
++        }
++
++        /// V0.1.6 deliberately scopes editing to plain .txt files so the
++        /// established behavior of every other file type remains unchanged.
++        var isEditableText: Bool {
++            pathExtension == "txt"
++        }
+     }
+ 
+     static let shared = BTFileManagerService()
+@@ -581,10 +594,22 @@
+         return urls.compactMap { url in
+             let values = try? url.resourceValues(forKeys: keys)
+             if values?.isHidden == true { return nil }
++            let isDirectory = values?.isDirectory == true
++            let logicalSize: Int64
++            if isDirectory {
++                logicalSize = 0
++            } else if let fileSize = values?.fileSize {
++                logicalSize = Int64(fileSize)
++            } else if let attributes = try? fileManager.attributesOfItem(atPath: url.path),
++                      let number = attributes[.size] as? NSNumber {
++                logicalSize = number.int64Value
++            } else {
++                logicalSize = 0
++            }
+             return Item(
+                 url: url,
+-                isDirectory: values?.isDirectory == true,
+-                size: Int64(values?.fileSize ?? 0),
++                isDirectory: isDirectory,
++                size: logicalSize,
+                 modificationDate: values?.contentModificationDate
+             )
+         }
+@@ -681,7 +706,9 @@
+ 
+     func suggestedExtractionDirectory(for archiveURL: URL) -> URL {
+         let stem: String
+-        if archiveURL.lastPathComponent.lowercased().hasSuffix(".tar.gz") {
++        if let volumeBaseName = ArchiveExtractor.sevenZipVolumeBaseName(archiveURL) {
++            stem = volumeBaseName
++        } else if archiveURL.lastPathComponent.lowercased().hasSuffix(".tar.gz") {
+             stem = String(archiveURL.lastPathComponent.dropLast(7))
+         } else {
+             stem = archiveURL.deletingPathExtension().lastPathComponent
+@@ -785,6 +812,94 @@
+     }
+ }
+ 
++final class BTFileManagerCell: UITableViewCell {
++    static let reuseIdentifier = "BTFileManagerCellV015"
++
++    private let fileIconView = UIImageView()
++    private let nameLabel = UILabel()
++    private let detailLabel = UILabel()
++    private let sizeLabel = UILabel()
++
++    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
++        super.init(style: style, reuseIdentifier: reuseIdentifier)
++
++        fileIconView.translatesAutoresizingMaskIntoConstraints = false
++        fileIconView.contentMode = .scaleAspectFit
++        fileIconView.tintColor = .secondaryLabel
++
++        nameLabel.translatesAutoresizingMaskIntoConstraints = false
++        nameLabel.font = .systemFont(ofSize: 15, weight: .regular)
++        nameLabel.textColor = .label
++        nameLabel.numberOfLines = 2
++        nameLabel.lineBreakMode = .byTruncatingMiddle
++
++        detailLabel.translatesAutoresizingMaskIntoConstraints = false
++        detailLabel.font = .systemFont(ofSize: 11, weight: .regular)
++        detailLabel.textColor = .tertiaryLabel
++        detailLabel.numberOfLines = 1
++
++        sizeLabel.translatesAutoresizingMaskIntoConstraints = false
++        sizeLabel.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular)
++        sizeLabel.textColor = .secondaryLabel
++        sizeLabel.textAlignment = .right
++        sizeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
++        sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
++
++        contentView.addSubview(fileIconView)
++        contentView.addSubview(nameLabel)
++        contentView.addSubview(detailLabel)
++        contentView.addSubview(sizeLabel)
++
++        NSLayoutConstraint.activate([
++            fileIconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
++            fileIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
++            fileIconView.widthAnchor.constraint(equalToConstant: 25),
++            fileIconView.heightAnchor.constraint(equalToConstant: 25),
++
++            sizeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -13),
++            sizeLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
++            sizeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 58),
++            sizeLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 88),
++
++            nameLabel.leadingAnchor.constraint(equalTo: fileIconView.trailingAnchor, constant: 11),
++            nameLabel.trailingAnchor.constraint(equalTo: sizeLabel.leadingAnchor, constant: -9),
++            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
++
++            detailLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
++            detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: sizeLabel.leadingAnchor, constant: -9),
++            detailLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
++            detailLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -7)
++        ])
++    }
++
++    @available(*, unavailable)
++    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
++
++    func configure(item: BTFileManagerService.Item, iconName: String) {
++        fileIconView.image = UIImage(systemName: iconName)
++        nameLabel.text = item.name
++        if item.isDirectory {
++            sizeLabel.text = "文件夹"
++            detailLabel.text = "目录"
++        } else {
++            sizeLabel.text = ByteCountFormatter.string(fromByteCount: max(item.size, 0), countStyle: .file)
++            let type = item.pathExtension.isEmpty ? "文件" : item.pathExtension.uppercased()
++            if let date = item.modificationDate {
++                detailLabel.text = "\(type) · \(Self.dateFormatter.string(from: date))"
++            } else {
++                detailLabel.text = type
++            }
++        }
++    }
++
++    private static let dateFormatter: DateFormatter = {
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: "zh_CN")
++        formatter.dateFormat = "MM-dd HH:mm"
++        return formatter
++    }()
++}
++
+ final class BTFileManagerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+     private let service = BTFileManagerService.shared
+     private var directoryURL: URL
+@@ -809,7 +924,8 @@
+         tableView.translatesAutoresizingMaskIntoConstraints = false
+         tableView.dataSource = self
+         tableView.delegate = self
+-        tableView.rowHeight = 58
++        tableView.rowHeight = 66
++        tableView.register(BTFileManagerCell.self, forCellReuseIdentifier: BTFileManagerCell.reuseIdentifier)
+         view.addSubview(tableView)
+         NSLayoutConstraint.activate([
+             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+@@ -879,15 +995,14 @@
+     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { items.count }
+ 
