@@ -1,1 +1,1 @@
-BTMobile V0.1.6 final build 2026-08-20 - image viewer, TXT editor, encrypted 7z multipart support
+BTMobile V0.1.6 final build retry 2 - exact file hash validation
