@@ -1,0 +1,8 @@
+BTMobile V0.1.4 ZIP Hotfix1 GitHub Actions build
+status=success
+xcode_outcome=success
+source_commit=6befa17c1cfba8917c49b26731e7d2549aa1c44d
+run_id=32332326963
+run_attempt=1
+runner=macOS
+generated_utc=2026-08-20T04:43:59Z
