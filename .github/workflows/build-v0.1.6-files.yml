@@ -102,6 +102,24 @@ jobs:
           chmod +x ./Submodules/LibTorrent-Swift/make.sh
           ./Submodules/LibTorrent-Swift/make.sh
 
+      - name: Restore exact V0.1.5 TorrentHandle peer include
+        working-directory: source
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm')
+          s = p.read_text(encoding='utf-8')
+          marker = '#import "libtorrent/magnet_uri.hpp"\n'
+          peer = '#import "libtorrent/peer_info.hpp"\n'
+          if peer not in s:
+              if marker not in s:
+                  raise SystemExit('TorrentHandle magnet_uri include anchor missing')
+              s = s.replace(marker, marker + peer, 1)
+              p.write_text(s, encoding='utf-8')
+          print('V0.1.5 explicit peer_info include restored.')
+          PY
+
       - name: Build unsigned Release app
         id: xcodebuild
         continue-on-error: true
@@ -113,11 +131,21 @@ jobs:
         working-directory: source
         run: |
           set -e
-          test "$(shasum -a 256 iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')" = 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
-          test "$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h | awk '{print $1}')" = '251de6d80f37c6b28e42a462c7654d0c987d07463150d8454e08a11cb931b728'
-          test "$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm | awk '{print $1}')" = 'ca194dd4228f171105abfd5aac284294acc7aae887308bdf6448340750274227'
-          test "$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/SessionSettings/SessionSettings.mm | awk '{print $1}')" = '02debe4d7e5641912d4d421f135eba7d5ad7d7741bb167f221055d307c25aa0e'
-          test "$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm | awk '{print $1}')" = '92383097d81c8edb9178b8efe9307432d9cb7b22fe39c0c6f85d331b4a1cfb4c'
+          TD=$(shasum -a 256 iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')
+          THH=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h | awk '{print $1}')
+          THM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm | awk '{print $1}')
+          SSM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/SessionSettings/SessionSettings.mm | awk '{print $1}')
+          SM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm | awk '{print $1}')
+          echo "TorrentDetails=$TD"
+          echo "TorrentHandle.h=$THH"
+          echo "TorrentHandle.mm=$THM"
+          echo "SessionSettings.mm=$SSM"
+          echo "Session.mm=$SM"
+          test "$TD" = 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
+          test "$THH" = '251de6d80f37c6b28e42a462c7654d0c987d07463150d8454e08a11cb931b728'
+          test "$THM" = 'ca194dd4228f171105abfd5aac284294acc7aae887308bdf6448340750274227'
+          test "$SSM" = '02debe4d7e5641912d4d421f135eba7d5ad7d7741bb167f221055d307c25aa0e'
+          test "$SM" = '92383097d81c8edb9178b8efe9307432d9cb7b22fe39c0c6f85d331b4a1cfb4c'
           echo 'V0.1.5 BT core hashes unchanged.'
 
       - name: Stop after Xcode failure
