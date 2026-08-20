@@ -1,0 +1,8 @@
+BTMobile V0.1.6 GitHub Actions build
+status=failure
+xcode_outcome=skipped
+source_commit=dc80528bf4411e0ef81908a999c9ed44c2fcf396
+run_id=32350336276
+run_attempt=1
+runner=macOS
+generated_utc=2026-08-20T08:45:49Z
