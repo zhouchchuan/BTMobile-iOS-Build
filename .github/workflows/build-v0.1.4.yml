@@ -99,27 +99,54 @@ jobs:
       - name: Build unsigned Release app
         working-directory: source
         run: |
-          set +e
-          echo 'Starting xcodebuild...' > "$RUNNER_TEMP/xcodebuild.log"
-          xcodebuild \
-            -workspace iTorrent.xcworkspace \
-            -scheme iTorrent \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            -skipMacroValidation \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY= \
-            DEVELOPMENT_TEAM= \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            clean build >> "$RUNNER_TEMP/xcodebuild.log" 2>&1
-          RC=$?
-          echo "$RC" > "$RUNNER_TEMP/xcodebuild.exit"
-          cat "$RUNNER_TEMP/xcodebuild.log"
-          exit "$RC"
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          log = temp / 'xcodebuild.log'
+          exit_file = temp / 'xcodebuild.exit'
+          derived = temp / 'DerivedData'
+          cmd = [
+              'xcodebuild',
+              '-workspace', 'iTorrent.xcworkspace',
+              '-scheme', 'iTorrent',
+              '-configuration', 'Release',
+              '-sdk', 'iphoneos',
+              '-destination', 'generic/platform=iOS',
+              '-derivedDataPath', str(derived),
+              '-skipMacroValidation',
+              '-skipPackagePluginValidation',
+              'CODE_SIGNING_ALLOWED=NO',
+              'CODE_SIGNING_REQUIRED=NO',
+              'COMPILER_INDEX_STORE_ENABLE=NO',
+              'clean', 'build',
+          ]
+          print('Executing:', ' '.join(cmd), flush=True)
+          with log.open('w', encoding='utf-8', errors='replace') as output:
+              output.write('Executing: ' + ' '.join(cmd) + '\n')
+              output.flush()
+              process = subprocess.Popen(
+                  cmd,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  errors='replace',
+                  bufsize=1,
+              )
+              assert process.stdout is not None
+              for line in process.stdout:
+                  sys.stdout.write(line)
+                  sys.stdout.flush()
+                  output.write(line)
+                  output.flush()
+              rc = process.wait()
+          exit_file.write_text(str(rc), encoding='utf-8')
+          print(f'xcodebuild exit code: {rc}', flush=True)
+          sys.exit(rc)
+          PY
 
       - name: Validate application metadata
         run: |
