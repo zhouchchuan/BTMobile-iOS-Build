@@ -1,0 +1,53 @@
+--- a/iTorrent/Screens/TorrentList/TorrentListViewController.swift
++++ b/iTorrent/Screens/TorrentList/TorrentListViewController.swift
+@@ -1252,6 +1252,32 @@
+         present(alert, animated: true)
+     }
+ 
++    private func promptSevenZipVolumePassword(_ url: URL) {
++        let alert = UIAlertController(
++            title: "7z 分卷解压",
++            message: "如果这是加密分卷，请输入密码；无密码分卷可直接选择“无密码解压”。",
++            preferredStyle: .alert
++        )
++        alert.addTextField { field in
++            field.placeholder = "输入解压密码"
++            field.isSecureTextEntry = true
++            field.clearButtonMode = .whileEditing
++        }
++        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
++        alert.addAction(UIAlertAction(title: "无密码解压", style: .default) { [weak self] _ in
++            self?.extractArchive(url, password: "")
++        })
++        alert.addAction(UIAlertAction(title: "密码解压", style: .default) { [weak self, weak alert] _ in
++            guard let password = alert?.textFields?.first?.text, !password.isEmpty else {
++                let error = ArchiveExtractor.ExtractionError(message: "请输入 7z 分卷密码，或选择“无密码解压”")
++                self?.showError(error)
++                return
++            }
++            self?.extractArchive(url, password: password)
++        })
++        present(alert, animated: true)
++    }
++
+     private func promptArchivePassword(_ url: URL) {
+         let alert = UIAlertController(title: "压缩包密码", message: url.lastPathComponent, preferredStyle: .alert)
+         alert.addTextField { field in
+@@ -1268,6 +1294,17 @@
+     }
+ 
+     private func extractArchive(_ url: URL, password: String?) {
++        // V0.1.6 Build 18 crash guard: a split 7z selected through the context
++        // menu used to immediately probe libarchive with no passphrase. Some
++        // encrypted 7z headers can fail below Swift before an Error is returned.
++        // For split volumes, nil means the user has not chosen a password mode
++        // yet, so route through the password dialog first. An explicitly empty
++        // string still means “this split archive has no password”.
++        if ArchiveExtractor.isSevenZipVolume(url), password == nil {
++            promptSevenZipVolumePassword(url)
++            return
++        }
++
+         let destination = service.suggestedExtractionDirectory(for: url)
+         let progress = UIAlertController(title: "正在解压", message: url.lastPathComponent, preferredStyle: .alert)
+         present(progress, animated: true)
