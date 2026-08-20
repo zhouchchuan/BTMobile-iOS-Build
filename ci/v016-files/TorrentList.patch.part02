@@ -1,0 +1,186 @@
+     private func promptCreateFolder() {
+         let alert = UIAlertController(title: "新建文件夹", message: relativePath(directoryURL), preferredStyle: .alert)
+@@ -1039,7 +1240,10 @@
+ 
+     // MARK: Archive
+     private func presentArchiveMenu(for url: URL, sourceView: UIView?) {
+-        let alert = UIAlertController(title: url.lastPathComponent, message: "选择解压方式", preferredStyle: .actionSheet)
++        let message = ArchiveExtractor.isSevenZipVolume(url)
++            ? "检测到 7z 分卷包，将自动组合同目录的 .001/.002/... 后解压"
++            : "选择解压方式"
++        let alert = UIAlertController(title: url.lastPathComponent, message: message, preferredStyle: .actionSheet)
+         alert.addAction(UIAlertAction(title: "直接解压", style: .default) { [weak self] _ in self?.extractArchive(url, password: nil) })
+         alert.addAction(UIAlertAction(title: "输入密码解压", style: .default) { [weak self] _ in self?.promptArchivePassword(url) })
+         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+@@ -1099,3 +1303,435 @@
+         present(alert, animated: true)
+     }
+ }
++
++
++// MARK: - BTMobile V0.1.6 Image Viewer
++
++/// In-app image viewer for common downloaded image files.  It uses ImageIO
++/// thumbnail decoding to avoid expanding very large source images at full
++/// resolution just to fit an iPhone screen.  The source file itself is never
++/// modified.
++final class BTImageViewerViewController: UIViewController, UIScrollViewDelegate {
++    private let fileURL: URL
++    private let scrollView = UIScrollView()
++    private let imageView = UIImageView()
++    private var loadedImage: UIImage?
++    private var didApplyInitialZoom = false
++
++    init(fileURL: URL) {
++        self.fileURL = fileURL
++        super.init(nibName: nil, bundle: nil)
++    }
++
++    @available(*, unavailable)
++    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
++
++    override func viewDidLoad() {
++        super.viewDidLoad()
++        title = fileURL.lastPathComponent
++        view.backgroundColor = .black
++        navigationItem.largeTitleDisplayMode = .never
++
++        navigationItem.rightBarButtonItem = UIBarButtonItem(
++            barButtonSystemItem: .action,
++            target: self,
++            action: #selector(shareImage)
++        )
++
++        scrollView.translatesAutoresizingMaskIntoConstraints = false
++        scrollView.delegate = self
++        scrollView.backgroundColor = .black
++        scrollView.bouncesZoom = true
++        scrollView.showsHorizontalScrollIndicator = false
++        scrollView.showsVerticalScrollIndicator = false
++        view.addSubview(scrollView)
++
++        NSLayoutConstraint.activate([
++            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
++            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
++            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
++            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
++        ])
++
++        let maximumDimension = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
++            * UIScreen.main.scale * 4
++        guard let image = Self.downsampleImage(at: fileURL, maximumPixelDimension: maximumDimension) else {
++            showLoadFailure()
++            return
++        }
++        loadedImage = image
++        imageView.image = image
++        imageView.contentMode = .scaleAspectFit
++        imageView.frame = CGRect(origin: .zero, size: image.size)
++        scrollView.addSubview(imageView)
++        scrollView.contentSize = image.size
++
++        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
++        doubleTap.numberOfTapsRequired = 2
++        scrollView.addGestureRecognizer(doubleTap)
++    }
++
++    override func viewDidLayoutSubviews() {
++        super.viewDidLayoutSubviews()
++        guard let image = loadedImage, image.size.width > 0, image.size.height > 0 else { return }
++        let available = scrollView.bounds.size
++        guard available.width > 0, available.height > 0 else { return }
++
++        let fitScale = min(available.width / image.size.width, available.height / image.size.height)
++        let minimum = max(min(fitScale, 1), 0.01)
++        scrollView.minimumZoomScale = minimum
++        scrollView.maximumZoomScale = max(minimum * 6, 4)
++        if !didApplyInitialZoom {
++            didApplyInitialZoom = true
++            scrollView.zoomScale = fitScale
++        }
++        centerImage()
++    }
++
++    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
++
++    func scrollViewDidZoom(_ scrollView: UIScrollView) { centerImage() }
++
++    private func centerImage() {
++        let bounds = scrollView.bounds.size
++        let frame = imageView.frame
++        let horizontal = max((bounds.width - frame.width) * 0.5, 0)
++        let vertical = max((bounds.height - frame.height) * 0.5, 0)
++        scrollView.contentInset = UIEdgeInsets(top: vertical, left: horizontal, bottom: vertical, right: horizontal)
++    }
++
++    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
++        let minimum = scrollView.minimumZoomScale
++        if scrollView.zoomScale > minimum * 1.25 {
++            scrollView.setZoomScale(minimum, animated: true)
++            return
++        }
++        let target = min(max(minimum * 2.5, 1), scrollView.maximumZoomScale)
++        let point = gesture.location(in: imageView)
++        let width = scrollView.bounds.width / target
++        let height = scrollView.bounds.height / target
++        scrollView.zoom(to: CGRect(x: point.x - width / 2, y: point.y - height / 2, width: width, height: height), animated: true)
++    }
++
++    @objc private func shareImage() {
++        let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
++        controller.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
++        present(controller, animated: true)
++    }
++
++    private func showLoadFailure() {
++        let label = UILabel()
++        label.translatesAutoresizingMaskIntoConstraints = false
++        label.text = "无法读取这张图片\n文件可能尚未下载完整或格式不受系统支持"
++        label.textColor = .secondaryLabel
++        label.textAlignment = .center
++        label.numberOfLines = 0
++        view.addSubview(label)
++        NSLayoutConstraint.activate([
++            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
++            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
++            label.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
++            label.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24)
++        ])
++    }
++
++    private static func downsampleImage(at url: URL, maximumPixelDimension: CGFloat) -> UIImage? {
++        let sourceOptions: CFDictionary = [kCGImageSourceShouldCache: false] as CFDictionary
++        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
++            return UIImage(contentsOfFile: url.path)
++        }
++
++        let thumbnailOptions: CFDictionary = [
++            kCGImageSourceCreateThumbnailFromImageAlways: true,
++            kCGImageSourceCreateThumbnailWithTransform: true,
++            kCGImageSourceThumbnailMaxPixelSize: max(Int(maximumPixelDimension.rounded(.up)), 1024),
++            kCGImageSourceShouldCacheImmediately: true
++        ] as CFDictionary
++
++        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else {
++            return UIImage(contentsOfFile: url.path)
++        }
++        return UIImage(cgImage: cgImage)
++    }
++}
++
++// MARK: - BTMobile V0.1.6 TXT Viewer / Editor
++
++/// Plain-text viewer/editor used only for .txt files.  UITextView keeps the
++/// native iOS selection handles and Copy menu, while explicit Select All and
++/// Copy Selection actions make paragraph copying easy without leaving BTMobile.
++final class BTTextEditorViewController: UIViewController, UITextViewDelegate {
++    private struct DecodedText {
++        let text: String
++        let encoding: String.Encoding
++        let encodingName: String
++        let bom: Data?
++    }
++
++    private let fileURL: URL
++    private let textView = UITextView()
++    private var fileEncoding: String.Encoding = .utf8
