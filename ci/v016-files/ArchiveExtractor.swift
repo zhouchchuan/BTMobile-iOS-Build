@@ -217,7 +217,13 @@ public enum ArchiveExtractor {
                 let input = try FileHandle(forReadingFrom: part.url)
                 do {
                     while true {
-                        let data = try input.read(upToCount: 1_048_576) ?? Data()
+                        // Keep each 1 MiB read inside its own autorelease pool.
+                        // Large multi-GB split archives otherwise allow Foundation
+                        // NSData/FileHandle temporaries to accumulate on iOS and can
+                        // be killed by jetsam before libarchive even starts.
+                        let data: Data = try autoreleasepool {
+                            try input.read(upToCount: 1_048_576) ?? Data()
+                        }
                         if data.isEmpty { break }
                         try output.write(contentsOf: data)
                     }
