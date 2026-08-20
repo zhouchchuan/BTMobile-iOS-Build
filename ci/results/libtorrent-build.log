@@ -116,6 +116,6 @@ suppress it.
  * gnutls, build using GnuTLS instead of OpenSSL
  * webtorrent, build with WebTorrent support
 
--- Configuring done (50.8s)
+-- Configuring done (30.6s)
 -- Generating done (0.1s)
 -- Build files have been written to: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/LibTorrent-Swift/libtorrent-build

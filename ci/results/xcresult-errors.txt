@@ -1,0 +1,11 @@
+xcresulttool_exit=0
+
+=== XCRESULT ERROR CANDIDATES ===
+message=Value of type 'TorrentHandle' has no member 'peerStats' | issueType=Swift Compiler Error
+message=Missing argument for parameter #3 in call | issueType=Swift Compiler Error
+message=Cannot infer type of closure parameter 'external' without a type annotation | issueType=Swift Compiler Error
+message=Cannot infer type of closure parameter 'managed' without a type annotation | issueType=Swift Compiler Error
+message=no such include directory: '/Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/LibTorrent-Swift/libtorrent-build/Release/include' | issueType=Warning
+message=no such include directory: '/Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/LibTorrent-Swift/libtorrent-build/build/torrent-rasterbar.build/Release-iphoneos/DerivedSources-normal/arm64' | issueType=Warning
+message=no such include directory: '/Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/LibTorrent-Swift/libtorrent-build/build/torrent-rasterbar.build/Release-iphoneos/DerivedSources/arm64' | issueType=Warning
+message=no such include directory: '/Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/LibTorrent-Swift/libtorrent-build/build/torrent-rasterbar.build/Release-iphoneos/DerivedSources' | issueType=Warning
