@@ -9,3 +9,4 @@
 - V1.0.3: session-token message isolation + PWA push helper
 - Build 5 hotfix: manual day/night appearance switch + dark-mode chat bubble readability fix
 - Build 6: branded iOS launch screen with launch background, centered app logo, title and subtitle
+- Build runner: macOS 15 fallback for stable Xcode build
