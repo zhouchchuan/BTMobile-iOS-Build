@@ -1,0 +1,2 @@
+error: Build input file cannot be found: '/Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/iTorrent/Core/Assets/GoogleService-Info.plist'. Did you forget to declare this file as an output of a script phase or custom build rule which produces it? (in target 'iTorrent' from project 'iTorrent')
+** BUILD FAILED **
