@@ -1,4 +1,4 @@
-name: Build Customer Service iOS V1.0.1 Direct
+name: Build Customer Service iOS V1.0.2 Direct
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: customer-service-ios-v1.0.1-direct
+  group: customer-service-ios-v1.0.2-direct
   cancel-in-progress: true
 
 jobs:
@@ -43,8 +43,8 @@ jobs:
           test -f "$SRC/CustomerServiceApp/BrandIcon.svg"
           grep -q 'com.yuyanfriends.app' "$SRC/project.yml"
           grep -q 'https://service.linkyou.win:9443' "$SRC/CustomerServiceApp/ChatViewModel.swift"
-          grep -q 'MARKETING_VERSION: 1.0.1' "$SRC/project.yml"
-          grep -q 'CURRENT_PROJECT_VERSION: 2' "$SRC/project.yml"
+          grep -q 'MARKETING_VERSION: 1.0.2' "$SRC/project.yml"
+          grep -q 'CURRENT_PROJECT_VERSION: 3' "$SRC/project.yml"
 
       - name: Render branding assets
         run: |
@@ -93,26 +93,26 @@ jobs:
           echo "Version: $VERSION"
           echo "Build: $BUILD"
           test "$BUNDLE" = 'com.yuyanfriends.app'
-          test "$VERSION" = '1.0.1'
-          test "$BUILD" = '2'
+          test "$VERSION" = '1.0.2'
+          test "$BUILD" = '3'
           test -f "$APP/CustomerServiceApp"
           test -f "$APP/Assets.car"
-          OUT="$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned"
+          OUT="$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned"
           mkdir -p "$OUT/Payload"
           cp -R "$APP" "$OUT/Payload/CustomerServiceApp.app"
           rm -rf "$OUT/Payload/CustomerServiceApp.app/_CodeSignature"
           rm -f "$OUT/Payload/CustomerServiceApp.app/embedded.mobileprovision"
           cd "$OUT"
-          /usr/bin/zip -qry "$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned.ipa" Payload
-          shasum -a 256 "$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned.ipa" > "$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned_SHA256.txt"
+          /usr/bin/zip -qry "$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned.ipa" > "$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned_SHA256.txt"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: CustomerService_iOS_V1.0.1_Unsigned_IPA_Direct
+          name: CustomerService_iOS_V1.0.2_Unsigned_IPA_Direct
           path: |
-            ${{ runner.temp }}/CustomerService_iOS_V1.0.1_Unsigned.ipa
-            ${{ runner.temp }}/CustomerService_iOS_V1.0.1_Unsigned_SHA256.txt
+            ${{ runner.temp }}/CustomerService_iOS_V1.0.2_Unsigned.ipa
+            ${{ runner.temp }}/CustomerService_iOS_V1.0.2_Unsigned_SHA256.txt
             ${{ runner.temp }}/xcodebuild.log
           retention-days: 7
           if-no-files-found: error
@@ -127,19 +127,19 @@ jobs:
           rm -rf "$RESULT_DIR"
           mkdir -p "$RESULT_DIR"
           {
-            echo 'Customer Service iOS V1.0.1 Direct build'
+            echo 'Customer Service iOS V1.0.2 Direct build'
             echo "status=$JOB_STATUS"
             echo "source_commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
             echo "run_attempt=$GITHUB_RUN_ATTEMPT"
             echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           } > "$RESULT_DIR/status.txt"
-          [ -f "$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned_SHA256.txt" ] && cp "$RUNNER_TEMP/CustomerService_iOS_V1.0.1_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          [ -f "$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned_SHA256.txt" ] && cp "$RUNNER_TEMP/CustomerService_iOS_V1.0.2_Unsigned_SHA256.txt" "$RESULT_DIR/"
           [ -f "$RUNNER_TEMP/xcodebuild.log" ] && tail -n 350 "$RUNNER_TEMP/xcodebuild.log" > "$RESULT_DIR/xcodebuild-tail.log"
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git config user.name 'github-actions[bot]'
           git add -f ci/customer-service-ios-v1-direct-results
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "CI direct result Customer Service iOS V1.0.1: $JOB_STATUS"
+          git commit -m "CI direct result Customer Service iOS V1.0.2: $JOB_STATUS"
           git pull --rebase origin customer-service-ios-v1.0.0
           git push origin HEAD:customer-service-ios-v1.0.0
