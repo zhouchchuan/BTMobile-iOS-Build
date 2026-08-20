@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1d3d"/><stop offset="1" stop-color="#050b18"/></linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3be8ff"/><stop offset="0.48" stop-color="#1593ff"/><stop offset="1" stop-color="#2350ff"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2b67ff"/><stop offset="1" stop-color="#4cf6ff"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="18" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <circle cx="512" cy="510" r="315" fill="#147cff" opacity="0.11"/>
+  <path d="M275 470 C275 268 748 250 754 470" fill="none" stroke="url(#cyan)" stroke-width="58" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M340 375 C292 431 290 618 360 686 L319 766 C310 782 328 799 345 790 L430 750 C483 779 599 771 654 731 C735 671 748 530 712 438 C671 334 567 296 478 310 C424 318 376 339 340 375Z" fill="url(#blue)" filter="url(#glow)"/>
+  <rect x="221" y="467" width="92" height="177" rx="44" fill="url(#blue)"/>
+  <rect x="711" y="467" width="92" height="177" rx="44" fill="url(#blue)"/>
+  <path d="M755 624 C744 718 688 775 605 789" fill="none" stroke="#41edff" stroke-width="32" stroke-linecap="round"/>
+  <rect x="553" y="758" width="108" height="74" rx="36" fill="url(#blue)"/>
+  <g fill="#eefaff"><circle cx="438" cy="535" r="24"/><circle cx="512" cy="535" r="24"/><circle cx="586" cy="535" r="24"/></g>
+</svg>

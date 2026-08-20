@@ -1,0 +1,143 @@
+name: Build Customer Service iOS V1.0.0 Direct
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - customer-service-ios-v1.0.0
+    paths:
+      - 'ci/customer-service-ios-v1-direct/**'
+      - '.github/workflows/build-customer-service-ios-v1-direct.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: customer-service-ios-v1.0.0-direct
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Install build tools
+        run: brew install xcodegen imagemagick
+
+      - name: Validate direct source
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/ci/customer-service-ios-v1-direct"
+          test -f "$SRC/project.yml"
+          test -f "$SRC/CustomerServiceApp/RootView.swift"
+          test -f "$SRC/CustomerServiceApp/ChatViewModel.swift"
+          test -f "$SRC/CustomerServiceApp/BrandIcon.svg"
+          grep -q 'com.yuyanfriends.app' "$SRC/project.yml"
+          grep -q 'https://service.linkyou.win:9443' "$SRC/CustomerServiceApp/ChatViewModel.swift"
+
+      - name: Render branding assets
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/ci/customer-service-ios-v1-direct/CustomerServiceApp"
+          magick -background none "$SRC/BrandIcon.svg" -resize '1024x1024!' -alpha off "$SRC/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          magick -background none "$SRC/BrandIcon.svg" -resize '240x240!' -alpha off "$SRC/Assets.xcassets/AppLoginLogo.imageset/AppLoginLogo.png"
+          magick -background none "$SRC/LaunchBackground.svg" -resize '430x932!' -alpha off "$SRC/Assets.xcassets/LaunchBackground.imageset/LaunchBackground.png"
+          file "$SRC/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          file "$SRC/Assets.xcassets/LaunchBackground.imageset/LaunchBackground.png"
+
+      - name: Generate Xcode project
+        working-directory: ci/customer-service-ios-v1-direct
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          xcodebuild -project CustomerServiceApp.xcodeproj -scheme CustomerServiceApp -showBuildSettings | grep -E 'PRODUCT_BUNDLE_IDENTIFIER|MARKETING_VERSION|CURRENT_PROJECT_VERSION|IPHONEOS_DEPLOYMENT_TARGET'
+
+      - name: Build unsigned Release app
+        working-directory: ci/customer-service-ios-v1-direct
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/CustomerServiceDerivedData"
+          xcodebuild \
+            -project CustomerServiceApp.xcodeproj \
+            -scheme CustomerServiceApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/CustomerServiceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Validate and package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app"
+          test -d "$APP"
+          PLIST="$APP/Info.plist"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "Bundle ID: $BUNDLE"
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          test "$BUNDLE" = 'com.yuyanfriends.app'
+          test "$VERSION" = '1.0.0'
+          test "$BUILD" = '1'
+          test -f "$APP/CustomerServiceApp"
+          test -f "$APP/Assets.car"
+          OUT="$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/CustomerServiceApp.app"
+          rm -rf "$OUT/Payload/CustomerServiceApp.app/_CodeSignature"
+          rm -f "$OUT/Payload/CustomerServiceApp.app/embedded.mobileprovision"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned.ipa" > "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: CustomerService_iOS_V1.0.0_Unsigned_IPA_Direct
+          path: |
+            ${{ runner.temp }}/CustomerService_iOS_V1.0.0_Unsigned.ipa
+            ${{ runner.temp }}/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt
+            ${{ runner.temp }}/xcodebuild.log
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Write direct build result back
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci/customer-service-ios-v1-direct-results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+          {
+            echo 'Customer Service iOS V1.0.0 Direct build'
+            echo "status=$JOB_STATUS"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+          [ -f "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt" ] && cp "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          [ -f "$RUNNER_TEMP/xcodebuild.log" ] && tail -n 350 "$RUNNER_TEMP/xcodebuild.log" > "$RESULT_DIR/xcodebuild-tail.log"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/customer-service-ios-v1-direct-results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "CI direct result Customer Service iOS V1.0.0: $JOB_STATUS"
+          git pull --rebase origin customer-service-ios-v1.0.0
+          git push origin HEAD:customer-service-ios-v1.0.0
