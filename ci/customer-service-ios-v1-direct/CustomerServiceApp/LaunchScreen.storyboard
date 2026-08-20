@@ -15,16 +15,39 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" image="LaunchBackground" translatesAutoresizingMaskIntoConstraints="NO" id="launch-image">
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" image="LaunchBackground" translatesAutoresizingMaskIntoConstraints="NO" id="launch-bg">
                                 <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                             </imageView>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="AppLoginLogo" translatesAutoresizingMaskIntoConstraints="NO" id="launch-logo">
+                                <rect key="frame" x="116.5" y="300" width="160" height="160"/>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="客服工作台" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="launch-title">
+                                <rect key="frame" x="96.5" y="486" width="200" height="36"/>
+                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="28"/>
+                                <color key="textColor" red="0.925" green="0.97" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="实时在线 · 快速响应" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="launch-subtitle">
+                                <rect key="frame" x="96.5" y="532" width="200" height="22"/>
+                                <fontDescription key="fontDescription" type="system" weight="regular" pointSize="15"/>
+                                <color key="textColor" red="0.65" green="0.78" blue="0.94" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                            </label>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
                         <constraints>
-                            <constraint firstItem="launch-image" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="top"/>
-                            <constraint firstItem="launch-image" firstAttribute="bottom" secondItem="Ze5-6b-2t3" secondAttribute="bottom" id="bottom"/>
-                            <constraint firstItem="launch-image" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="left"/>
-                            <constraint firstItem="launch-image" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="right"/>
+                            <constraint firstItem="launch-bg" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="bg-top"/>
+                            <constraint firstItem="launch-bg" firstAttribute="bottom" secondItem="Ze5-6b-2t3" secondAttribute="bottom" id="bg-bottom"/>
+                            <constraint firstItem="launch-bg" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="bg-left"/>
+                            <constraint firstItem="launch-bg" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="bg-right"/>
+                            <constraint firstItem="launch-logo" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="logo-x"/>
+                            <constraint firstItem="launch-logo" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-62" id="logo-y"/>
+                            <constraint firstItem="launch-logo" firstAttribute="width" constant="160" id="logo-w"/>
+                            <constraint firstItem="launch-logo" firstAttribute="height" constant="160" id="logo-h"/>
+                            <constraint firstItem="launch-title" firstAttribute="top" secondItem="launch-logo" secondAttribute="bottom" constant="24" id="title-top"/>
+                            <constraint firstItem="launch-title" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="title-x"/>
+                            <constraint firstItem="launch-title" firstAttribute="width" constant="200" id="title-w"/>
+                            <constraint firstItem="launch-subtitle" firstAttribute="top" secondItem="launch-title" secondAttribute="bottom" constant="8" id="subtitle-top"/>
+                            <constraint firstItem="launch-subtitle" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="subtitle-x"/>
+                            <constraint firstItem="launch-subtitle" firstAttribute="width" constant="200" id="subtitle-w"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -32,5 +55,8 @@
             </objects>
         </scene>
     </scenes>
-    <resources><image name="LaunchBackground" width="430" height="932"/></resources>
+    <resources>
+        <image name="LaunchBackground" width="430" height="932"/>
+        <image name="AppLoginLogo" width="240" height="240"/>
+    </resources>
 </document>
