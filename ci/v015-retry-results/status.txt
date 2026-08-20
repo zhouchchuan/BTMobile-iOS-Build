@@ -1,0 +1,8 @@
+BTMobile V0.1.5 Retry GitHub Actions build
+status=success
+xcode_outcome=success
+source_commit=60510283c6579fd9053888ee72bfc7a61097aa28
+run_id=32344693410
+run_attempt=1
+runner=macOS
+generated_utc=2026-08-20T07:44:55Z
