@@ -1,0 +1,240 @@
+name: Build BTMobile V0.1.6 Build18 Hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/v016-build18-trigger.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btmobile-v0.1.6-build18-hotfix
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout private CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 0
+
+      - name: Checkout pinned iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Install build dependency
+        run: brew install boost
+
+      - name: Reconstruct V0.1.6 Build18 hotfix exactly
+        run: |
+          set -e
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          test -f ci-repo/ci/v016-files/ArchiveExtractor.swift
+          test -f ci-repo/ci/v016-files/archive_bridge_build18.c
+          test -f ci-repo/ci/v016-files/TorrentList_build18.patch
+          for N in 00 01 02 03 04; do test -f "ci-repo/ci/v016-files/TorrentList.patch.part$N"; done
+
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          cp ci-repo/ci/v016-files/archive_bridge_build18.c source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          cp ci-repo/ci/v016-files/ArchiveExtractor.swift source/Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+
+          cat ci-repo/ci/v016-files/TorrentList.patch.part* > "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+          BASE_PATCH_SHA=$(shasum -a 256 "$RUNNER_TEMP/TorrentList_v014_to_v016.patch" | awk '{print $1}')
+          HOTFIX_PATCH_SHA=$(shasum -a 256 ci-repo/ci/v016-files/TorrentList_build18.patch | awk '{print $1}')
+          echo "Base patch SHA256: $BASE_PATCH_SHA"
+          echo "Hotfix patch SHA256: $HOTFIX_PATCH_SHA"
+          test "$BASE_PATCH_SHA" = 'b69f7659a48954b8ac2edbfc0bc38d9d1e1e898318d22feb7c8e9c9311617541'
+          test "$HOTFIX_PATCH_SHA" = '7d127195eb987a5cc7bc195a5c40cbfe15a9b5f238d0ff99fed6bd525ced5fdd'
+
+          cd source
+          patch -p1 < "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+          patch -p1 < ../ci-repo/ci/v016-files/TorrentList_build18.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('iTorrent.xcodeproj/project.pbxproj')
+          s = p.read_text(encoding='utf-8')
+          if s.count('MARKETING_VERSION = 0.1.4;') != 3:
+              raise SystemExit('Unexpected V0.1.4 marketing version count')
+          if s.count('CURRENT_PROJECT_VERSION = 14;') != 3:
+              raise SystemExit('Unexpected V0.1.4 build version count')
+          s = s.replace('MARKETING_VERSION = 0.1.4;', 'MARKETING_VERSION = 0.1.6;')
+          s = s.replace('CURRENT_PROJECT_VERSION = 14;', 'CURRENT_PROJECT_VERSION = 18;')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          grep -q 'APPLICATION_ID = com.mxmall123.app' iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'MARKETING_VERSION = 0.1.6' iTorrent.xcodeproj/project.pbxproj
+          grep -q 'CURRENT_PROJECT_VERSION = 18' iTorrent.xcodeproj/project.pbxproj
+          grep -q 'promptSevenZipVolumePassword' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'autoreleasepool' Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          grep -q 'btmobile_archive_mutex' Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+
+          TL=$(shasum -a 256 iTorrent/Screens/TorrentList/TorrentListViewController.swift | awk '{print $1}')
+          AE=$(shasum -a 256 Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift | awk '{print $1}')
+          AB=$(shasum -a 256 Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c | awk '{print $1}')
+          TD=$(shasum -a 256 iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')
+          echo "TorrentList=$TL"
+          echo "ArchiveExtractor=$AE"
+          echo "ArchiveBridge=$AB"
+          echo "TorrentDetails=$TD"
+          test "$TL" = '73824e359b850a2e5791f028b17de16c7f59a5213ac149a9a3f857329773d4dd'
+          test "$AE" = 'a34c2ff89d04a9a32e082896a27c0d54789d30439c419158dbbfb8e1753660a7'
+          test "$AB" = 'b3ba0f905d560173cf39e87b7d2dad466b9b92e80996a0c0e7d62fc81a310613'
+          test "$TD" = 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
+          echo 'V0.1.6 Build18 hotfix reconstruction passed.'
+
+      - name: Swift and C syntax preflight
+        working-directory: source
+        run: |
+          set -e
+          xcrun swiftc -frontend -parse iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          xcrun swiftc -frontend -parse Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          xcrun clang -std=c11 -fsyntax-only -ISubmodules/SwiftVLC/Sources/CLibVLC/include Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          echo 'Hotfix syntax preflight passed.'
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          set -e
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh
+
+      - name: Restore exact V0.1.5 TorrentHandle peer include
+        working-directory: source
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm')
+          s = p.read_text(encoding='utf-8')
+          marker = '#import "libtorrent/magnet_uri.hpp"\n'
+          peer = '#import "libtorrent/peer_info.hpp"\n'
+          if peer not in s:
+              if marker not in s:
+                  raise SystemExit('TorrentHandle magnet_uri include anchor missing')
+              s = s.replace(marker, marker + peer, 1)
+              p.write_text(s, encoding='utf-8')
+          print('V0.1.5 explicit peer_info include restored.')
+          PY
+
+      - name: Build unsigned Release app
+        id: xcodebuild
+        continue-on-error: true
+        working-directory: source
+        run: python3 ../ci-repo/ci/build_v014.py
+
+      - name: Verify V0.1.5 frozen BT core after Xcode restore
+        if: steps.xcodebuild.outcome == 'success'
+        working-directory: source
+        run: |
+          set -e
+          TD=$(shasum -a 256 iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')
+          THH=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h | awk '{print $1}')
+          THM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm | awk '{print $1}')
+          SSM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/SessionSettings/SessionSettings.mm | awk '{print $1}')
+          SM=$(shasum -a 256 Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm | awk '{print $1}')
+          echo "TorrentDetails=$TD"
+          echo "TorrentHandle.h=$THH"
+          echo "TorrentHandle.mm=$THM"
+          echo "SessionSettings.mm=$SSM"
+          echo "Session.mm=$SM"
+          test "$TD" = 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
+          test "$THH" = '251de6d80f37c6b28e42a462c7654d0c987d07463150d8454e08a11cb931b728'
+          test "$THM" = 'ca194dd4228f171105abfd5aac284294acc7aae887308bdf6448340750274227'
+          test "$SSM" = '02debe4d7e5641912d4d421f135eba7d5ad7d7741bb167f221055d307c25aa0e'
+          test "$SM" = '92383097d81c8edb9178b8efe9307432d9cb7b22fe39c0c6f85d331b4a1cfb4c'
+          echo 'V0.1.5 BT core hashes unchanged.'
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: exit 1
+
+      - name: Validate metadata and package unsigned IPA
+        if: steps.xcodebuild.outcome == 'success'
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          test -d "$APP"
+          PLIST="$APP/Info.plist"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "Bundle ID: $BUNDLE"
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          test "$BUNDLE" = 'com.mxmall123.app'
+          test "$VERSION" = '0.1.6'
+          test "$BUILD" = '18'
+
+          OUT="$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          rm -rf "$OUT/Payload/BTMobile.app/_CodeSignature"
+          rm -f "$OUT/Payload/BTMobile.app/embedded.mobileprovision"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned.ipa" | tee "$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned_SHA256.txt"
+
+      - name: Upload Build18 unsigned IPA
+        if: steps.xcodebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V0.1.6_Build18_Unsigned_IPA
+          path: |
+            ${{ runner.temp }}/BTMobile_V0.1.6_Build18_Unsigned.ipa
+            ${{ runner.temp }}/BTMobile_V0.1.6_Build18_Unsigned_SHA256.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Write Build18 result back
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          XCODE_OUTCOME: ${{ steps.xcodebuild.outcome }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci-repo/ci/v016-build18-results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+          {
+            echo 'BTMobile V0.1.6 Build18 Hotfix GitHub Actions build'
+            echo "status=$JOB_STATUS"
+            echo "xcode_outcome=$XCODE_OUTCOME"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner=$RUNNER_OS"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+          for F in xcodebuild.log xcodebuild.exit xcode-summary.txt; do
+            if [ -f "$RUNNER_TEMP/$F" ]; then cp "$RUNNER_TEMP/$F" "$RESULT_DIR/$F"; fi
+          done
+          if [ -f "$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned_SHA256.txt" ]; then
+            cp "$RUNNER_TEMP/BTMobile_V0.1.6_Build18_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          fi
+          cd "$GITHUB_WORKSPACE/ci-repo"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/v016-build18-results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "CI Build18 hotfix V0.1.6: $JOB_STATUS"
+          git pull --rebase origin main
+          git push origin HEAD:main
