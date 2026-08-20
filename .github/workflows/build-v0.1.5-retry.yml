@@ -1,0 +1,149 @@
+name: Build BTMobile V0.1.5 Retry
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/v015-retry-trigger.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btmobile-v0.1.5-retry
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout private CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 0
+
+      - name: Checkout pinned iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Install build dependency
+        run: brew install boost
+
+      - name: Apply V0.1.4 stable overlay and V0.1.5 changes
+        run: |
+          set -e
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          cp ci-repo/ci/v015/archive_bridge.c source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          cd source
+          python3 ../ci-repo/ci/v015/apply_v015.py
+          grep -q 'APPLICATION_ID = com.mxmall123.app' iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'MARKETING_VERSION = 0.1.5' iTorrent.xcodeproj/project.pbxproj
+          grep -q 'CURRENT_PROJECT_VERSION = 16' iTorrent.xcodeproj/project.pbxproj
+
+      - name: Verify frozen BT core
+        working-directory: source
+        run: |
+          set -e
+          test "$(shasum -a 256 iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')" = 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          set -e
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh
+
+      - name: Build unsigned Release app
+        id: xcodebuild
+        continue-on-error: true
+        working-directory: source
+        run: python3 ../ci-repo/ci/build_v014.py
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: exit 1
+
+      - name: Validate metadata and package IPA
+        if: steps.xcodebuild.outcome == 'success'
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          test -d "$APP"
+          PLIST="$APP/Info.plist"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "Bundle ID: $BUNDLE"
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          test "$BUNDLE" = 'com.mxmall123.app'
+          test "$VERSION" = '0.1.5'
+          test "$BUILD" = '16'
+          OUT="$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          rm -rf "$OUT/Payload/BTMobile.app/_CodeSignature"
+          rm -f "$OUT/Payload/BTMobile.app/embedded.mobileprovision"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned.ipa" | tee "$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned_SHA256.txt"
+
+      - name: Upload unsigned IPA
+        if: steps.xcodebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V0.1.5_Unsigned_IPA_Retry
+          path: |
+            ${{ runner.temp }}/BTMobile_V0.1.5_Unsigned.ipa
+            ${{ runner.temp }}/BTMobile_V0.1.5_Unsigned_SHA256.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Write retry result back
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          XCODE_OUTCOME: ${{ steps.xcodebuild.outcome }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci-repo/ci/v015-retry-results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+          {
+            echo 'BTMobile V0.1.5 Retry GitHub Actions build'
+            echo "status=$JOB_STATUS"
+            echo "xcode_outcome=$XCODE_OUTCOME"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner=$RUNNER_OS"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+          for F in xcodebuild.log xcodebuild.exit xcode-summary.txt; do
+            if [ -f "$RUNNER_TEMP/$F" ]; then cp "$RUNNER_TEMP/$F" "$RESULT_DIR/$F"; fi
+          done
+          if [ -f "$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned_SHA256.txt" ]; then
+            cp "$RUNNER_TEMP/BTMobile_V0.1.5_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          fi
+          cd "$GITHUB_WORKSPACE/ci-repo"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/v015-retry-results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "CI retry result V0.1.5: $JOB_STATUS"
+          git pull --rebase origin main
+          git push origin HEAD:main
