@@ -6,14 +6,17 @@ import UIKit
 
 struct RootView: View {
     @EnvironmentObject var vm: ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     var body: some View {
         Group { if vm.loggedIn { MainView() } else { LoginView() } }
             .animation(.easeInOut(duration: 0.2), value: vm.loggedIn)
+            .preferredColorScheme(appearance == "dark" ? .dark : .light)
     }
 }
 
 struct LoginView: View {
     @EnvironmentObject var vm: ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -32,6 +35,9 @@ struct LoginView: View {
                         HStack { if vm.isBusy { ProgressView().tint(.white) }; Text(vm.isBusy ? "正在登录…":"登录") }
                             .frame(maxWidth:.infinity).padding(.vertical,10)
                     }.buttonStyle(.borderedProminent).controlSize(.large).disabled(vm.isBusy)
+                    Button { appearance = appearance == "dark" ? "light" : "dark" } label: {
+                        Label(appearance == "dark" ? "切换日间模式" : "切换夜间模式", systemImage: appearance == "dark" ? "sun.max.fill" : "moon.fill")
+                    }.buttonStyle(.bordered)
                     Text("service.linkyou.win:9443").font(.caption).foregroundStyle(.tertiary).padding(.top,6)
                     Text("V1.0.3 支持免费的 PWA 锁屏通知：登录后可从右上角菜单打开 Safari 设置，无需购买 Apple Developer 推送服务。")
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -43,6 +49,7 @@ struct LoginView: View {
 
 struct MainView: View {
     @EnvironmentObject var vm: ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     @State private var path:[String] = []
     @State private var ending: ChatSession?
     @State private var showPushHelp = false
@@ -77,7 +84,10 @@ struct MainView: View {
                 ToolbarItem(placement:.navigationBarLeading) {
                     HStack(spacing:6) { Circle().fill(vm.connected ? .green:.orange).frame(width:9,height:9); Text(vm.connected ? "实时在线":"连接中").font(.caption).foregroundStyle(.secondary) }
                 }
-                ToolbarItem(placement:.navigationBarTrailing) {
+                ToolbarItemGroup(placement:.navigationBarTrailing) {
+                    Button { appearance = appearance == "dark" ? "light" : "dark" } label: {
+                        Image(systemName: appearance == "dark" ? "sun.max.fill" : "moon.fill")
+                    }.accessibilityLabel(appearance == "dark" ? "切换日间模式" : "切换夜间模式")
                     Menu {
                         Button("免费锁屏通知设置") { showPushHelp = true }
                         Button("原生 APNs 通知（可选）") { vm.requestPushPermission() }
@@ -134,6 +144,7 @@ struct ConversationCard: View {
 
 struct ChatView: View {
     @EnvironmentObject var vm:ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     let sessionToken:String
     @State private var text=""
     @State private var photoItem:PhotosPickerItem?
@@ -183,6 +194,11 @@ struct ChatView: View {
                     Text("IP \(currentSession?.ip ?? "—")").font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            ToolbarItem(placement:.navigationBarTrailing) {
+                Button { appearance = appearance == "dark" ? "light" : "dark" } label: {
+                    Image(systemName: appearance == "dark" ? "sun.max.fill" : "moon.fill")
+                }.accessibilityLabel(appearance == "dark" ? "切换日间模式" : "切换夜间模式")
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -198,12 +214,20 @@ struct ChatView: View {
 
 struct MessageRow: View {
     @EnvironmentObject var vm:ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     let message:ChatMessage
     var isAgent:Bool { message.sender_type == "agent" }
     var isSystem:Bool { message.sender_type == "system" }
     var body: some View {
         if isSystem {
-            HStack { Spacer(); MessageContent(message:message,isAgent:false).font(.footnote).foregroundStyle(.secondary).padding(.horizontal,12).padding(.vertical,7).background(.white.opacity(0.72),in:Capsule()); Spacer() }
+            HStack {
+                Spacer()
+                MessageContent(message:message,isAgent:false)
+                    .font(.footnote)
+                    .padding(.horizontal,12).padding(.vertical,7)
+                    .background(appearance == "dark" ? Color(red:0.12,green:0.14,blue:0.18) : Color.white.opacity(0.82),in:Capsule())
+                Spacer()
+            }
         } else {
             HStack(alignment:.bottom,spacing:8) {
                 if isAgent { Spacer(minLength:44) } else { VisitorAvatar() }
@@ -216,6 +240,7 @@ struct MessageRow: View {
 
 struct MessageContent: View {
     @EnvironmentObject var vm:ChatViewModel
+    @AppStorage("csAppearance") private var appearance = "light"
     let message:ChatMessage
     let isAgent:Bool
     var body: some View {
@@ -228,8 +253,8 @@ struct MessageContent: View {
             } else {
                 Text(message.kind == "attachment_deleted" ? "附件已由管理员删除" : message.content)
                     .textSelection(.enabled).padding(.horizontal,13).padding(.vertical,10)
-                    .background(isAgent ? Color(red:0.05,green:0.63,blue:0.94):Color.white)
-                    .foregroundStyle(isAgent ? Color.white:Color.primary)
+                    .background(isAgent ? Color(red:0.05,green:0.63,blue:0.94) : (appearance == "dark" ? Color(red:0.13,green:0.15,blue:0.19) : Color.white))
+                    .foregroundStyle(isAgent ? Color.white : (appearance == "dark" ? Color.white : Color.black))
                     .clipShape(RoundedRectangle(cornerRadius:11,style:.continuous))
             }
         }.frame(maxWidth:290,alignment:isAgent ? .trailing:.leading)
