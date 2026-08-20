@@ -1,0 +1,66 @@
++        controller.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItems?.last
++        present(controller, animated: true)
++    }
++
++    private func showMessage(title: String, message: String) {
++        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: "好", style: .default))
++        present(alert, animated: true)
++    }
++
++    private func showError(_ error: Error) {
++        let alert = UIAlertController(title: "文本文件打开失败", message: error.localizedDescription, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: "好", style: .default))
++        present(alert, animated: true)
++    }
++
++    private static func decode(_ data: Data) -> DecodedText? {
++        let utf8BOM = Data([0xEF, 0xBB, 0xBF])
++        let utf16LEBOM = Data([0xFF, 0xFE])
++        let utf16BEBOM = Data([0xFE, 0xFF])
++
++        let bomCandidates: [(Data, String.Encoding, String)] = [
++            (utf8BOM, .utf8, "UTF-8"),
++            (utf16LEBOM, .utf16LittleEndian, "UTF-16 LE"),
++            (utf16BEBOM, .utf16BigEndian, "UTF-16 BE")
++        ]
++        for (bom, encoding, name) in bomCandidates where data.starts(with: bom) {
++            let payload = data.dropFirst(bom.count)
++            if let text = String(data: Data(payload), encoding: encoding) {
++                return DecodedText(text: text, encoding: encoding, encodingName: name, bom: bom)
++            }
++        }
++
++        // 0x80000632 / 0x80000631 are Foundation NSStringEncoding values
++        // corresponding to GB18030 and GBK, useful for Chinese TXT files.
++        let gb18030 = String.Encoding(rawValue: 0x80000632)
++        let gbk = String.Encoding(rawValue: 0x80000631)
++        let candidates: [(String.Encoding, String)] = [
++            (.utf8, "UTF-8"),
++            (gb18030, "GB18030"),
++            (gbk, "GBK"),
++            (.utf16LittleEndian, "UTF-16 LE"),
++            (.utf16BigEndian, "UTF-16 BE")
++        ]
++        for (encoding, name) in candidates {
++            if let text = String(data: data, encoding: encoding) {
++                return DecodedText(text: text, encoding: encoding, encodingName: name, bom: nil)
++            }
++        }
++        return nil
++    }
++
++    private enum TextEditorError: LocalizedError {
++        case unsupportedEncoding
++        case cannotEncode(String)
++
++        var errorDescription: String? {
++            switch self {
++            case .unsupportedEncoding:
++                return "无法识别文本编码。当前支持 UTF-8、UTF-16、GB18030/GBK 等常见 TXT 编码。"
++            case let .cannotEncode(name):
++                return "修改后的内容无法使用原文件编码 \(name) 保存。请删除该编码无法表示的字符后重试。"
++            }
++        }
++    }
++}
