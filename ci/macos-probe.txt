@@ -1,0 +1,4 @@
+macos_probe=ok
+ProductName:		macOS;ProductVersion:		26.5.2;BuildVersion:		25F84;
+Xcode 26.6;Build version 17F113;
+utc=2026-08-20T01:35:40Z
