@@ -1,6 +1,6 @@
 Customer Service iOS V1.0.2 Direct build
-status=success
-source_commit=880c89ad0dfa7a75135ff8d993f19939f7e33f9c
-run_id=32367672571
+status=failure
+source_commit=02b16f7b8828e917ebc0125bca44d85a327a3aa7
+run_id=32367809763
 run_attempt=1
-generated_utc=2026-08-20T12:14:15Z
+generated_utc=2026-08-20T12:14:37Z
