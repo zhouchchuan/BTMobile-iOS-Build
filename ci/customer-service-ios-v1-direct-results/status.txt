@@ -1,0 +1,6 @@
+Customer Service iOS V1.0.0 Direct build
+status=failure
+source_commit=03b0126cd2680c69768eeea876782d9c177a424a
+run_id=32358555024
+run_attempt=1
+generated_utc=2026-08-20T10:22:45Z
