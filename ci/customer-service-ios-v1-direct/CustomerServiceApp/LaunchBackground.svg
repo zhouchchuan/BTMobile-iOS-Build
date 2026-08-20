@@ -1,19 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="430" height="932" viewBox="0 0 430 932">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="45%" r="72%"><stop offset="0" stop-color="#123d8f"/><stop offset="0.42" stop-color="#071d4b"/><stop offset="1" stop-color="#020817"/></radialGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#45efff"/><stop offset="0.5" stop-color="#168fff"/><stop offset="1" stop-color="#234fff"/></linearGradient>
-    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2a68ff"/><stop offset="1" stop-color="#4bf4ff"/></linearGradient>
-    <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <radialGradient id="bg" cx="50%" cy="42%" r="78%">
+      <stop offset="0" stop-color="#143d86"/>
+      <stop offset="0.42" stop-color="#081f4d"/>
+      <stop offset="1" stop-color="#020817"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#168fff" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#168fff" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <rect width="430" height="932" fill="url(#bg)"/>
-  <g transform="translate(80 324) scale(.265)" filter="url(#glow)">
-    <path d="M275 470 C275 268 748 250 754 470" fill="none" stroke="url(#cyan)" stroke-width="58" stroke-linecap="round"/>
-    <path d="M340 375 C292 431 290 618 360 686 L319 766 C310 782 328 799 345 790 L430 750 C483 779 599 771 654 731 C735 671 748 530 712 438 C671 334 567 296 478 310 C424 318 376 339 340 375Z" fill="url(#blue)"/>
-    <rect x="221" y="467" width="92" height="177" rx="44" fill="url(#blue)"/>
-    <rect x="711" y="467" width="92" height="177" rx="44" fill="url(#blue)"/>
-    <path d="M755 624 C744 718 688 775 605 789" fill="none" stroke="#41edff" stroke-width="32" stroke-linecap="round"/>
-    <rect x="553" y="758" width="108" height="74" rx="36" fill="url(#blue)"/>
-    <g fill="#eefaff"><circle cx="438" cy="535" r="24"/><circle cx="512" cy="535" r="24"/><circle cx="586" cy="535" r="24"/></g>
-  </g>
-  <ellipse cx="215" cy="600" rx="62" ry="9" fill="#167bff" opacity="0.18"/>
+  <ellipse cx="215" cy="420" rx="180" ry="210" fill="url(#halo)"/>
+  <ellipse cx="215" cy="610" rx="125" ry="18" fill="#168fff" opacity="0.08"/>
 </svg>
