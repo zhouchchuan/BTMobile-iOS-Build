@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
+      - 'ci/build_v014.py'
       - '.github/workflows/build-v0.1.4.yml'
 
 permissions:
@@ -30,6 +31,7 @@ jobs:
         run: |
           set -e
           test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          test -f ci-repo/ci/build_v014.py
           echo 'Overlay SHA256:'
           shasum -a 256 ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
 
@@ -97,58 +99,96 @@ jobs:
           exit "$RC"
 
       - name: Build unsigned Release app
+        id: xcodebuild
+        continue-on-error: true
         working-directory: source
-        run: |
-          python3 - <<'PY'
-          import os
-          import pathlib
-          import subprocess
-          import sys
+        run: python3 ../ci-repo/ci/build_v014.py
 
-          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
-          log = temp / 'xcodebuild.log'
-          exit_file = temp / 'xcodebuild.exit'
-          derived = temp / 'DerivedData'
-          cmd = [
-              'xcodebuild',
-              '-workspace', 'iTorrent.xcworkspace',
-              '-scheme', 'iTorrent',
-              '-configuration', 'Release',
-              '-sdk', 'iphoneos',
-              '-destination', 'generic/platform=iOS',
-              '-derivedDataPath', str(derived),
-              '-skipMacroValidation',
-              '-skipPackagePluginValidation',
-              'CODE_SIGNING_ALLOWED=NO',
-              'CODE_SIGNING_REQUIRED=NO',
-              'COMPILER_INDEX_STORE_ENABLE=NO',
-              'clean', 'build',
-          ]
-          print('Executing:', ' '.join(cmd), flush=True)
-          with log.open('w', encoding='utf-8', errors='replace') as output:
-              output.write('Executing: ' + ' '.join(cmd) + '\n')
-              output.flush()
-              process = subprocess.Popen(
-                  cmd,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.STDOUT,
-                  text=True,
-                  errors='replace',
-                  bufsize=1,
-              )
-              assert process.stdout is not None
-              for line in process.stdout:
-                  sys.stdout.write(line)
-                  sys.stdout.flush()
-                  output.write(line)
-                  output.flush()
-              rc = process.wait()
-          exit_file.write_text(str(rc), encoding='utf-8')
-          print(f'xcodebuild exit code: {rc}', flush=True)
-          sys.exit(rc)
+      - name: Extract xcresult diagnostics
+        if: always()
+        run: |
+          set +e
+          SUMMARY="$RUNNER_TEMP/xcresult-errors.txt"
+          JSON="$RUNNER_TEMP/xcresult.json"
+          BUNDLE="$RUNNER_TEMP/BuildResult.xcresult"
+          : > "$SUMMARY"
+          if [ -d "$BUNDLE" ]; then
+            xcrun xcresulttool get --legacy --path "$BUNDLE" --format json > "$JSON" 2>/dev/null
+            XC_RC=$?
+            echo "xcresulttool_exit=$XC_RC" >> "$SUMMARY"
+            if [ "$XC_RC" = 0 ]; then
+              JSON_PATH="$JSON" OUT_PATH="$SUMMARY" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          src = Path(os.environ['JSON_PATH'])
+          out = Path(os.environ['OUT_PATH'])
+          try:
+              data = json.loads(src.read_text(encoding='utf-8', errors='replace'))
+          except Exception as exc:
+              with out.open('a', encoding='utf-8') as f:
+                  f.write(f'json_parse_error={exc}\n')
+              raise SystemExit(0)
+
+          found = []
+          seen = set()
+
+          def text_value(v):
+              if isinstance(v, str):
+                  return v
+              if isinstance(v, dict):
+                  for k in ('_value', 'value', 'message', 'title', 'description'):
+                      x = v.get(k)
+                      if isinstance(x, str):
+                          return x
+              return None
+
+          def walk(node, path='root'):
+              if isinstance(node, dict):
+                  keys = set(node.keys())
+                  candidate = []
+                  for key in ('message', 'title', 'description', 'issueType', 'type', 'documentLocationInCreatingWorkspace'):
+                      if key in node:
+                          value = text_value(node[key])
+                          if value:
+                              candidate.append(f'{key}={value}')
+                  joined = ' | '.join(candidate)
+                  lower = joined.lower()
+                  if joined and any(term in lower for term in ('error', 'failed', 'undefined', 'cannot', 'could not', 'no such', 'ambiguous', 'unavailable')):
+                      if joined not in seen:
+                          seen.add(joined)
+                          found.append(joined)
+                  for k, v in node.items():
+                      walk(v, f'{path}.{k}')
+              elif isinstance(node, list):
+                  for i, v in enumerate(node):
+                      walk(v, f'{path}[{i}]')
+
+          walk(data)
+          with out.open('a', encoding='utf-8') as f:
+              f.write('\n=== XCRESULT ERROR CANDIDATES ===\n')
+              if found:
+                  f.write('\n'.join(found[:500]))
+                  f.write('\n')
+              else:
+                  f.write('(none found)\n')
           PY
+            fi
+          else
+            echo 'xcresult bundle missing' >> "$SUMMARY"
+          fi
+          echo '=== xcresult diagnostic summary ==='
+          cat "$SUMMARY"
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: |
+          echo 'xcodebuild failed; diagnostics were captured.'
+          exit 1
 
       - name: Validate application metadata
+        if: steps.xcodebuild.outcome == 'success'
         run: |
           set -e
           APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
@@ -165,6 +205,7 @@ jobs:
           test "$BUILD" = '14'
 
       - name: Package unsigned IPA
+        if: steps.xcodebuild.outcome == 'success'
         run: |
           set -e
           APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
@@ -178,6 +219,7 @@ jobs:
           ls -lh "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa"
 
       - name: Upload unsigned IPA artifact
+        if: steps.xcodebuild.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: BTMobile_V0.1.4_Unsigned_IPA
@@ -191,6 +233,7 @@ jobs:
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
+          XCODE_OUTCOME: ${{ steps.xcodebuild.outcome }}
         run: |
           set +e
           RESULT_DIR="$GITHUB_WORKSPACE/ci-repo/ci/results"
@@ -200,6 +243,7 @@ jobs:
           {
             echo "BTMobile V0.1.4 GitHub Actions build"
             echo "status=$JOB_STATUS"
+            echo "xcode_outcome=$XCODE_OUTCOME"
             echo "source_commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
             echo "run_attempt=$GITHUB_RUN_ATTEMPT"
@@ -207,7 +251,7 @@ jobs:
             echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           } > "$RESULT_DIR/status.txt"
 
-          for F in libtorrent-build.log libtorrent.exit xcode-preflight.log xcode-preflight.exit xcodebuild.log xcodebuild.exit; do
+          for F in libtorrent-build.log libtorrent.exit xcode-preflight.log xcode-preflight.exit xcodebuild.log xcodebuild.exit xcode-summary.txt xcresult-errors.txt; do
             if [ -f "$RUNNER_TEMP/$F" ]; then
               cp "$RUNNER_TEMP/$F" "$RESULT_DIR/$F"
             fi
