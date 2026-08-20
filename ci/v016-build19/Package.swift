@@ -10,9 +10,8 @@ let package = Package(
   ],
   dependencies: [
     // 7z/LZMA engine used only by ArchiveExtractor for .7z and split .7z volumes.
-    // Use the CI-pinned local checkout so upstream unsafe compiler flags can be
-    // removed without changing any BTMobile source or the V0.1.5 BT core.
-    .package(path: "../PLzmaSDK"),
+    // 1.2.5 has no unsafe SwiftPM build flags and exposes the same 7z/LZMA/AES decoder API.
+    .package(url: "https://github.com/OlehKulykov/PLzmaSDK.git", exact: "1.2.5"),
     // Build-time plugin only; not linked into consumers.
     .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.6"),
     // Test-only. Produces diff-style failure messages for struct/enum
