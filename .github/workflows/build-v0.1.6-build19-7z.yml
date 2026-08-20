@@ -58,10 +58,8 @@ jobs:
           cp ci-repo/ci/v016-build19/Package.swift source/Submodules/SwiftVLC/Package.swift
 
           cat ci-repo/ci/v016-files/TorrentList.patch.part* > "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
-          BASE_PATCH_SHA=$(shasum -a 256 "$RUNNER_TEMP/TorrentList_v014_to_v016.patch" | awk '{print $1}')
-          HOTFIX_PATCH_SHA=$(shasum -a 256 ci-repo/ci/v016-files/TorrentList_build18.patch | awk '{print $1}')
-          test "$BASE_PATCH_SHA" = 'b69f7659a48954b8ac2edbfc0bc38d9d1e1e898318d22feb7c8e9c9311617541'
-          test "$HOTFIX_PATCH_SHA" = '7d127195eb987a5cc7bc195a5c40cbfe15a9b5f238d0ff99fed6bd525ced5fdd'
+          test "$(shasum -a 256 "$RUNNER_TEMP/TorrentList_v014_to_v016.patch" | awk '{print $1}')" = 'b69f7659a48954b8ac2edbfc0bc38d9d1e1e898318d22feb7c8e9c9311617541'
+          test "$(shasum -a 256 ci-repo/ci/v016-files/TorrentList_build18.patch | awk '{print $1}')" = '7d127195eb987a5cc7bc195a5c40cbfe15a9b5f238d0ff99fed6bd525ced5fdd'
 
           cd source
           patch -p1 < "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
@@ -86,7 +84,7 @@ jobs:
           grep -q 'promptSevenZipVolumePassword' iTorrent/Screens/TorrentList/TorrentListViewController.swift
           grep -q 'import PLzmaSDK' Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
           grep -q 'PLzmaSDK.Decoder' Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
-          grep -q 'OlehKulykov/PLzmaSDK.git' Submodules/SwiftVLC/Package.swift
+          grep -q 'exact: "1.2.5"' Submodules/SwiftVLC/Package.swift
 
           TL=$(shasum -a 256 iTorrent/Screens/TorrentList/TorrentListViewController.swift | awk '{print $1}')
           AE=$(shasum -a 256 Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift | awk '{print $1}')
@@ -98,7 +96,7 @@ jobs:
           echo "ArchiveBridge=$AB"
           test "$TL" = '73824e359b850a2e5791f028b17de16c7f59a5213ac149a9a3f857329773d4dd'
           test "$AE" = 'a4abe549df3e43415f3b56eeb0708d406407eeeb0e660716b1f1f468cc0ca224'
-          test "$PKG" = '68d6e2a9ec2fdf37f3d50a61e26678ae651c9f5077a2f8421c19178e792dbf55'
+          test "$PKG" = '13d5bf7bd88749c414e223ea688906cf93dc452d0609ed42567ca7cf49560772'
           test "$AB" = 'b3ba0f905d560173cf39e87b7d2dad466b9b92e80996a0c0e7d62fc81a310613'
           echo 'V0.1.6 Build19 exact reconstruction passed.'
 
@@ -109,7 +107,6 @@ jobs:
           xcrun swiftc -frontend -parse iTorrent/Screens/TorrentList/TorrentListViewController.swift
           xcrun swiftc -frontend -parse Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
           xcrun clang -std=c11 -fsyntax-only -ISubmodules/SwiftVLC/Sources/CLibVLC/include Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
-          echo 'Build19 syntax preflight passed.'
 
       - name: Configure LibTorrent
         working-directory: source
