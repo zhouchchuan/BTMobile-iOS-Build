@@ -2,10 +2,10 @@ PWD:
 /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source
 Workspace:
 total 8
-drwxr-xr-x   4 runner  staff  128 Aug 20 02:15 .
-drwxr-xr-x  19 runner  staff  608 Aug 20 02:15 ..
+drwxr-xr-x   4 runner  staff  128 Aug 20 02:47 .
+drwxr-xr-x  19 runner  staff  608 Aug 20 02:47 ..
 -rw-r--r--   1 runner  staff  327 Aug 20 00:52 contents.xcworkspacedata
-drwxr-xr-x   4 runner  staff  128 Aug 20 02:15 xcshareddata
+drwxr-xr-x   4 runner  staff  128 Aug 20 02:47 xcshareddata
 Shared schemes:
 iTorrent.xcodeproj/xcshareddata/xcschemes/iTorrent.xcscheme
 iTorrent.xcodeproj/xcshareddata/xcschemes/iTorrent-TV.xcscheme
@@ -19,107 +19,91 @@ Fetching from https://github.com/XITRIX/CombineCocoa.git
 
 Fetching from https://github.com/joekndy/MarqueeText.git
 
-Fetching from https://github.com/google/GoogleUtilities.git
+Fetching from https://github.com/drmohundro/SWXMLHash.git
+
+Fetching from https://github.com/swiftlang/swift-docc-plugin
+
+Fetching from https://github.com/pointfreeco/xctest-dynamic-overlay
 
 Fetching from https://github.com/swiftlang/swift-docc-symbolkit
 
 Fetching from https://github.com/firebase/leveldb.git
 
-Fetching from https://github.com/google/grpc-binary.git
-
-Fetching from https://github.com/google/GoogleAppMeasurement.git
-
-Fetching from https://github.com/google/app-check.git
-
-Fetching from https://github.com/firebase/nanopb.git
-
-Fetching from https://github.com/google/abseil-cpp-binary.git
-
-Fetching from https://github.com/swiftlang/swift-docc-plugin
-
-Fetching from https://github.com/google/promises.git
-
-Fetching from https://github.com/swiftlang/swift-syntax
-
-Fetching from https://github.com/pointfreeco/swift-custom-dump
+Fetching from https://github.com/google/GoogleUtilities.git
 
 Fetching from https://github.com/pointfreeco/swift-perception.git
 
-Fetching from https://github.com/pointfreeco/xctest-dynamic-overlay
+Fetching from https://github.com/google/abseil-cpp-binary.git
 
-Fetching from https://github.com/drmohundro/SWXMLHash.git
-
-Fetching from https://github.com/google/gtm-session-fetcher.git
+Fetching from https://github.com/google/grpc-binary.git
 
 Fetching from https://github.com/krzyzanowskim/OpenSSL.git
 
+Fetching from https://github.com/google/interop-ios-for-google-sdks.git
+
 Fetching from https://github.com/googleads/google-ads-on-device-conversion-ios-sdk
 
-Fetching from https://github.com/google/GoogleDataTransport.git
+Fetching from https://github.com/swiftlang/swift-syntax
+
+Fetching from https://github.com/firebase/nanopb.git
 
 Fetching from https://github.com/firebase/firebase-ios-sdk
 
-Fetching from https://github.com/google/interop-ios-for-google-sdks.git
+Fetching from https://github.com/google/gtm-session-fetcher.git
 
-Creating working copy of package ‘swift-syntax’
+Fetching from https://github.com/google/GoogleDataTransport.git
 
-Checking out 603.0.2 of package ‘swift-syntax’
+Fetching from https://github.com/google/GoogleAppMeasurement.git
 
-Creating working copy of package ‘swift-perception’
+Fetching from https://github.com/pointfreeco/swift-custom-dump
 
-Checking out 2.0.10 of package ‘swift-perception’
+Fetching from https://github.com/google/app-check.git
 
-Creating working copy of package ‘nanopb’
-
-Checking out 2.30910.0 of package ‘nanopb’
+Fetching from https://github.com/google/promises.git
 
 Creating working copy of package ‘interop-ios-for-google-sdks’
 
 Checking out 101.0.0 of package ‘interop-ios-for-google-sdks’
 
-Creating working copy of package ‘GoogleDataTransport’
+Creating working copy of package ‘swift-syntax’
 
-Checking out 10.1.0 of package ‘GoogleDataTransport’
-
-Creating working copy of package ‘promises’
-
-Checking out 2.4.0 of package ‘promises’
-
-Creating working copy of package ‘grpc-binary’
-
-Checking out 1.69.1 of package ‘grpc-binary’
-
-Creating working copy of package ‘swift-custom-dump’
-
-Checking out 1.6.1 of package ‘swift-custom-dump’
-
-Creating working copy of package ‘app-check’
-
-Checking out 11.3.1 of package ‘app-check’
+Checking out 603.0.2 of package ‘swift-syntax’
 
 Creating working copy of package ‘OpenSSL’
 
 Checking out 3.6.1 of package ‘OpenSSL’
 
-Creating working copy of package ‘gtm-session-fetcher’
-
-Checking out 5.3.0 of package ‘gtm-session-fetcher’
-
-Creating working copy of package ‘GoogleAppMeasurement’
-
-Checking out 12.16.0 of package ‘GoogleAppMeasurement’
-
 Creating working copy of package ‘MarqueeText’
 
 Checking out master (e18d514) of package ‘MarqueeText’
+
+Creating working copy of package ‘swift-perception’
+
+Checking out 2.0.10 of package ‘swift-perception’
 
 Creating working copy of package ‘xctest-dynamic-overlay’
 
 Checking out 1.10.0 of package ‘xctest-dynamic-overlay’
 
-Creating working copy of package ‘swift-docc-symbolkit’
+Creating working copy of package ‘leveldb’
 
-Checking out 1.0.0 of package ‘swift-docc-symbolkit’
+Checking out 1.22.5 of package ‘leveldb’
+
+Creating working copy of package ‘GoogleDataTransport’
+
+Checking out 10.1.0 of package ‘GoogleDataTransport’
+
+Creating working copy of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Checking out 3.6.1 of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Creating working copy of package ‘GoogleAppMeasurement’
+
+Checking out 12.16.0 of package ‘GoogleAppMeasurement’
+
+Creating working copy of package ‘SWXMLHash’
+
+Checking out 7.0.2 of package ‘SWXMLHash’
 
 Creating working copy of package ‘GoogleUtilities’
 
@@ -129,60 +113,76 @@ Creating working copy of package ‘swift-docc-plugin’
 
 Checking out 1.5.0 of package ‘swift-docc-plugin’
 
+Creating working copy of package ‘grpc-binary’
+
+Checking out 1.69.1 of package ‘grpc-binary’
+
+Creating working copy of package ‘gtm-session-fetcher’
+
+Checking out 5.3.0 of package ‘gtm-session-fetcher’
+
+Creating working copy of package ‘swift-docc-symbolkit’
+
+Checking out 1.0.0 of package ‘swift-docc-symbolkit’
+
 Creating working copy of package ‘firebase-ios-sdk’
 
 Checking out 12.16.0 of package ‘firebase-ios-sdk’
+
+Creating working copy of package ‘nanopb’
+
+Checking out 2.30910.0 of package ‘nanopb’
 
 Creating working copy of package ‘CombineCocoa’
 
 Checking out main (c1bd62b) of package ‘CombineCocoa’
 
-Creating working copy of package ‘google-ads-on-device-conversion-ios-sdk’
-
-Checking out 3.6.1 of package ‘google-ads-on-device-conversion-ios-sdk’
-
-Creating working copy of package ‘leveldb’
-
-Checking out 1.22.5 of package ‘leveldb’
-
 Creating working copy of package ‘abseil-cpp-binary’
 
 Checking out 1.2024072200.0 of package ‘abseil-cpp-binary’
 
-Creating working copy of package ‘SWXMLHash’
+Creating working copy of package ‘promises’
 
-Checking out 7.0.2 of package ‘SWXMLHash’
+Checking out 2.4.0 of package ‘promises’
+
+Creating working copy of package ‘app-check’
+
+Checking out 11.3.1 of package ‘app-check’
+
+Creating working copy of package ‘swift-custom-dump’
+
+Checking out 1.6.1 of package ‘swift-custom-dump’
 
 Downloading package prebuilt https://download.swift.org/prebuilts/swift-syntax/603.0.2/swiftlang-6.3.3.1.3-macosx26.5-MacroSupport.zip
 
 
 Resolved source packages:
-  abseil: https://github.com/google/abseil-cpp-binary.git @ 1.2024072200.0
-  GoogleDataTransport: https://github.com/google/GoogleDataTransport.git @ 10.1.0
-  xctest-dynamic-overlay: https://github.com/pointfreeco/xctest-dynamic-overlay @ 1.10.0
-  Promises: https://github.com/google/promises.git @ 2.4.0
-  MarqueeText: https://github.com/joekndy/MarqueeText.git @ master (e18d514)
-  MvvmFoundation: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/MVVMFoundation @ local
+  leveldb: https://github.com/firebase/leveldb.git @ 1.22.5
   swift-perception: https://github.com/pointfreeco/swift-perception.git @ 2.0.10
-  GoogleAdsOnDeviceConversion: https://github.com/googleads/google-ads-on-device-conversion-ios-sdk @ 3.6.1
-  SwiftDocCPlugin: https://github.com/swiftlang/swift-docc-plugin @ 1.5.0
-  AppCheck: https://github.com/google/app-check.git @ 11.3.1
-  SwiftVLC: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/SwiftVLC
-  InteropForGoogle: https://github.com/google/interop-ios-for-google-sdks.git @ 101.0.0
   Firebase: https://github.com/firebase/firebase-ios-sdk @ 12.16.0
+  xctest-dynamic-overlay: https://github.com/pointfreeco/xctest-dynamic-overlay @ 1.10.0
+  GoogleAdsOnDeviceConversion: https://github.com/googleads/google-ads-on-device-conversion-ios-sdk @ 3.6.1
   SymbolKit: https://github.com/swiftlang/swift-docc-symbolkit @ 1.0.0
-  GoogleUtilities: https://github.com/google/GoogleUtilities.git @ 8.1.2
-  gRPC: https://github.com/google/grpc-binary.git @ 1.69.1
-  CombineCocoa: https://github.com/XITRIX/CombineCocoa.git @ main (c1bd62b)
   GCDWebServer: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/GCDWebServer @ local
   nanopb: https://github.com/firebase/nanopb.git @ 2.30910.0
-  OpenSSL: https://github.com/krzyzanowskim/OpenSSL.git @ 3.6.1
-  GoogleAppMeasurement: https://github.com/google/GoogleAppMeasurement.git @ 12.16.0
-  swift-syntax: https://github.com/swiftlang/swift-syntax @ 603.0.2
-  leveldb: https://github.com/firebase/leveldb.git @ 1.22.5
+  GoogleDataTransport: https://github.com/google/GoogleDataTransport.git @ 10.1.0
+  MvvmFoundation: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/MVVMFoundation @ local
+  SwiftDocCPlugin: https://github.com/swiftlang/swift-docc-plugin @ 1.5.0
+  InteropForGoogle: https://github.com/google/interop-ios-for-google-sdks.git @ 101.0.0
   SWXMLHash: https://github.com/drmohundro/SWXMLHash.git @ 7.0.2
-  GTMSessionFetcher: https://github.com/google/gtm-session-fetcher.git @ 5.3.0
+  abseil: https://github.com/google/abseil-cpp-binary.git @ 1.2024072200.0
   swift-custom-dump: https://github.com/pointfreeco/swift-custom-dump @ 1.6.1
+  gRPC: https://github.com/google/grpc-binary.git @ 1.69.1
+  OpenSSL: https://github.com/krzyzanowskim/OpenSSL.git @ 3.6.1
+  GTMSessionFetcher: https://github.com/google/gtm-session-fetcher.git @ 5.3.0
+  swift-syntax: https://github.com/swiftlang/swift-syntax @ 603.0.2
+  CombineCocoa: https://github.com/XITRIX/CombineCocoa.git @ main (c1bd62b)
+  GoogleAppMeasurement: https://github.com/google/GoogleAppMeasurement.git @ 12.16.0
+  AppCheck: https://github.com/google/app-check.git @ 11.3.1
+  MarqueeText: https://github.com/joekndy/MarqueeText.git @ master (e18d514)
+  SwiftVLC: /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/source/Submodules/SwiftVLC
+  GoogleUtilities: https://github.com/google/GoogleUtilities.git @ 8.1.2
+  Promises: https://github.com/google/promises.git @ 2.4.0
 
 Information about workspace "iTorrent":
     Schemes:
