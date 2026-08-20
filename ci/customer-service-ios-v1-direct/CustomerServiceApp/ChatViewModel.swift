@@ -15,6 +15,8 @@ final class ChatViewModel: ObservableObject {
     @Published var chats: [ChatSession] = []
     @Published var selected: ChatSession?
     @Published var messages: [ChatMessage] = []
+    @Published var activeSessionToken: String?
+    @Published var loadingMessages = false
     @Published var errorText = ""
     @Published var connected = false
     @Published var isBusy = false
@@ -24,6 +26,7 @@ final class ChatViewModel: ObservableObject {
     private var reconnectWorkItem: DispatchWorkItem?
     private var pingWorkItem: DispatchWorkItem?
     private var cancellables = Set<AnyCancellable>()
+    private var messageRequestGeneration: UInt64 = 0
 
     init() {
         NotificationCenter.default.publisher(for: .apnsToken)
@@ -36,7 +39,6 @@ final class ChatViewModel: ObservableObject {
             .sink { [weak self] token in
                 Task { @MainActor in
                     guard let self else { return }
-                    await self.open(token: token)
                     self.pendingOpenToken = token
                 }
             }
@@ -48,7 +50,7 @@ final class ChatViewModel: ObservableObject {
                     guard let self, self.loggedIn else { return }
                     self.connectSocket()
                     await self.refreshChats()
-                    await self.refreshSelectedMessages()
+                    await self.refreshActiveMessages()
                     await self.registerSavedDeviceToken()
                 }
             }
@@ -89,9 +91,19 @@ final class ChatViewModel: ObservableObject {
     }
 
     func logout() {
-        reconnectWorkItem?.cancel(); pingWorkItem?.cancel()
-        socket?.cancel(with: .goingAway, reason: nil); socket = nil
-        connected = false; authToken = ""; me = nil; chats = []; selected = nil; messages = []
+        reconnectWorkItem?.cancel()
+        pingWorkItem?.cancel()
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
+        connected = false
+        authToken = ""
+        me = nil
+        chats = []
+        selected = nil
+        activeSessionToken = nil
+        messages = []
+        loadingMessages = false
+        messageRequestGeneration &+= 1
         UserDefaults.standard.removeObject(forKey: "authToken")
     }
 
@@ -113,20 +125,51 @@ final class ChatViewModel: ObservableObject {
         do {
             let rows: [ChatSession] = try await APIClient.shared.request("/api/staff/chats", baseURL: server, token: authToken)
             chats = rows
-            if let current = selected, let newer = rows.first(where: { $0.token == current.token }) { selected = newer }
+            if let token = activeSessionToken,
+               let newer = rows.first(where: { $0.token == token }) {
+                selected = newer
+            }
         } catch { errorText = error.localizedDescription }
     }
 
     func open(token: String) async {
-        if let session = chats.first(where: { $0.token == token }) { await open(session); return }
+        beginSwitch(to: token)
+        if let session = chats.first(where: { $0.token == token }) {
+            selected = session
+        } else {
+            await refreshChats()
+            guard activeSessionToken == token else { return }
+            selected = chats.first(where: { $0.token == token })
+        }
+        await loadMessages(for: token)
         await refreshChats()
-        if let session = chats.first(where: { $0.token == token }) { await open(session) }
     }
 
     func open(_ session: ChatSession) async {
+        beginSwitch(to: session.token)
         selected = session
-        await refreshSelectedMessages()
+        await loadMessages(for: session.token)
         await refreshChats()
+    }
+
+    private func beginSwitch(to token: String) {
+        if activeSessionToken != token {
+            messageRequestGeneration &+= 1
+            activeSessionToken = token
+            selected = chats.first(where: { $0.token == token })
+            messages = []
+            loadingMessages = true
+            errorText = ""
+        }
+    }
+
+    func leaveConversation(token: String) {
+        guard activeSessionToken == token else { return }
+        messageRequestGeneration &+= 1
+        activeSessionToken = nil
+        selected = nil
+        messages = []
+        loadingMessages = false
     }
 
     func endService(_ session: ChatSession) async {
@@ -135,30 +178,32 @@ final class ChatViewModel: ObservableObject {
                 "/api/staff/chats/\(session.token)/close", baseURL: server, token: authToken, method: "POST"
             )
             chats.removeAll { $0.token == session.token }
-            if selected?.token == session.token { selected = nil; messages = [] }
+            if activeSessionToken == session.token { leaveConversation(token: session.token) }
         } catch { errorText = error.localizedDescription }
     }
 
     func send(_ text: String) async {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let session = selected, !value.isEmpty else { return }
+        guard let sessionToken = activeSessionToken, !value.isEmpty else { return }
         do {
             let _: ChatMessage = try await APIClient.shared.request(
-                "/api/staff/chats/\(session.token)/messages", baseURL: server, token: authToken,
+                "/api/staff/chats/\(sessionToken)/messages", baseURL: server, token: authToken,
                 method: "POST", body: SendMessageBody(content: value, kind: "text")
             )
-            await refreshSelectedMessages(); await refreshChats()
+            await loadMessages(for: sessionToken)
+            await refreshChats()
         } catch { errorText = error.localizedDescription }
     }
 
     func uploadAttachment(_ data: Data, filename: String, mime: String) async {
-        guard let session = selected else { return }
+        guard let sessionToken = activeSessionToken else { return }
         do {
             _ = try await APIClient.shared.uploadAttachment(
-                "/api/staff/chats/\(session.token)/upload", baseURL: server, token: authToken,
+                "/api/staff/chats/\(sessionToken)/upload", baseURL: server, token: authToken,
                 data: data, filename: filename, mime: mime
             )
-            await refreshSelectedMessages(); await refreshChats()
+            await loadMessages(for: sessionToken)
+            await refreshChats()
         } catch { errorText = error.localizedDescription }
     }
 
@@ -184,25 +229,46 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func refreshSelectedMessages() async {
-        guard let session = selected, loggedIn else { return }
+    private func refreshActiveMessages() async {
+        guard let token = activeSessionToken else { return }
+        await loadMessages(for: token)
+    }
+
+    private func loadMessages(for sessionToken: String) async {
+        guard loggedIn, activeSessionToken == sessionToken else { return }
+        messageRequestGeneration &+= 1
+        let generation = messageRequestGeneration
+        loadingMessages = true
         do {
             let data: ChatMessagesResponse = try await APIClient.shared.request(
-                "/api/staff/chats/\(session.token)/messages", baseURL: server, token: authToken
+                "/api/staff/chats/\(sessionToken)/messages", baseURL: server, token: authToken
             )
-            selected = data.session; messages = data.messages
-        } catch { errorText = error.localizedDescription }
+            guard activeSessionToken == sessionToken, messageRequestGeneration == generation else { return }
+            selected = data.session
+            messages = data.messages.filter { $0.session_id == data.session.id }
+            loadingMessages = false
+        } catch {
+            guard activeSessionToken == sessionToken, messageRequestGeneration == generation else { return }
+            loadingMessages = false
+            errorText = error.localizedDescription
+        }
     }
 
     private func connectSocket() {
-        reconnectWorkItem?.cancel(); pingWorkItem?.cancel(); socket?.cancel(with: .goingAway, reason: nil)
+        reconnectWorkItem?.cancel()
+        pingWorkItem?.cancel()
+        socket?.cancel(with: .goingAway, reason: nil)
         connected = false
         guard loggedIn, let url = URL(string: server), var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        c.scheme = url.scheme == "https" ? "wss" : "ws"; c.path = "/ws/staff"
+        c.scheme = url.scheme == "https" ? "wss" : "ws"
+        c.path = "/ws/staff"
         c.queryItems = [URLQueryItem(name: "token", value: authToken)]
         guard let socketURL = c.url else { return }
-        let task = URLSession.shared.webSocketTask(with: socketURL); socket = task; task.resume()
-        receiveLoop(task); schedulePing(task, delay: 1)
+        let task = URLSession.shared.webSocketTask(with: socketURL)
+        socket = task
+        task.resume()
+        receiveLoop(task)
+        schedulePing(task, delay: 1)
     }
 
     private func receiveLoop(_ task: URLSessionWebSocketTask) {
@@ -211,9 +277,12 @@ final class ChatViewModel: ObservableObject {
                 guard let self, self.socket === task else { return }
                 switch result {
                 case .success(let message):
-                    self.connected = true; self.receiveLoop(task); await self.handleSocketMessage(message)
+                    self.connected = true
+                    self.receiveLoop(task)
+                    await self.handleSocketMessage(message)
                 case .failure(let error):
-                    print("WebSocket receive failed: \(error)"); self.handleSocketFailure(task)
+                    print("WebSocket receive failed: \(error)")
+                    self.handleSocketFailure(task)
                 }
             }
         }
@@ -221,17 +290,26 @@ final class ChatViewModel: ObservableObject {
 
     private func handleSocketMessage(_ message: URLSessionWebSocketTask.Message) async {
         let data: Data?
-        switch message { case .string(let text): data = text.data(using: .utf8); case .data(let value): data = value; @unknown default: data = nil }
+        switch message {
+        case .string(let text): data = text.data(using: .utf8)
+        case .data(let value): data = value
+        @unknown default: data = nil
+        }
         guard let data else { return }
-        var eventType = ""; var eventToken: String?
+
+        var eventType = ""
+        var eventToken: String?
         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             eventType = (object["type"] as? String ?? object["event"] as? String ?? "").lowercased()
             eventToken = extractSessionToken(from: object)
         }
         if ["ping", "pong", "heartbeat", "connected", "hello"].contains(eventType) { return }
+
         await refreshChats()
-        guard let currentToken = selected?.token else { return }
-        if eventToken == nil || eventToken == currentToken { await refreshSelectedMessages() }
+        guard let currentToken = activeSessionToken else { return }
+        if eventToken == nil || eventToken == currentToken {
+            await loadMessages(for: currentToken)
+        }
     }
 
     private func extractSessionToken(from object: [String: Any]) -> String? {
@@ -254,21 +332,34 @@ final class ChatViewModel: ObservableObject {
                 task.sendPing { [weak self, weak task] error in
                     Task { @MainActor in
                         guard let self, let task, self.socket === task else { return }
-                        if let error { print("WebSocket ping failed: \(error)"); self.handleSocketFailure(task) }
-                        else { self.connected = true; self.schedulePing(task) }
+                        if let error {
+                            print("WebSocket ping failed: \(error)")
+                            self.handleSocketFailure(task)
+                        } else {
+                            self.connected = true
+                            self.schedulePing(task)
+                        }
                     }
                 }
             }
         }
-        pingWorkItem = work; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        pingWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func handleSocketFailure(_ task: URLSessionWebSocketTask) {
         guard socket === task else { return }
-        connected = false; pingWorkItem?.cancel(); socket?.cancel(with: .goingAway, reason: nil); socket = nil
+        connected = false
+        pingWorkItem?.cancel()
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
         reconnectWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in guard let self, self.loggedIn else { return }; self.connectSocket() }
-        reconnectWorkItem = work; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.loggedIn else { return }
+            self.connectSocket()
+        }
+        reconnectWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 }
 
