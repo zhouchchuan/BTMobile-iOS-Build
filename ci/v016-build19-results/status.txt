@@ -1,0 +1,8 @@
+BTMobile V0.1.6 Build19 7z Fix GitHub Actions build
+status=failure
+xcode_outcome=failure
+source_commit=9631869bdf954d055aeff8766e593ee833e126c0
+run_id=32369162515
+run_attempt=1
+runner=macOS
+generated_utc=2026-08-20T12:34:12Z

@@ -1,0 +1,165 @@
+Executing: xcodebuild -workspace iTorrent.xcworkspace -scheme iTorrent -configuration Release -sdk iphoneos -destination generic/platform=iOS -derivedDataPath /Users/runner/work/_temp/DerivedData -resultBundlePath /Users/runner/work/_temp/BuildResult.xcresult -skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO COMPILER_INDEX_STORE_ENABLE=NO clean build
+Command line invocation:
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -workspace iTorrent.xcworkspace -scheme iTorrent -configuration Release -sdk iphoneos -destination generic/platform=iOS -derivedDataPath /Users/runner/work/_temp/DerivedData -resultBundlePath /Users/runner/work/_temp/BuildResult.xcresult -skipMacroValidation -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO COMPILER_INDEX_STORE_ENABLE=NO clean build
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+    CODE_SIGNING_REQUIRED = NO
+    COMPILER_INDEX_STORE_ENABLE = NO
+    SDKROOT = iphoneos26.5
+
+Resolve Package Graph
+
+Fetching from https://github.com/XITRIX/CombineCocoa.git
+
+Fetching from https://github.com/joekndy/MarqueeText.git
+
+Fetching from https://github.com/pointfreeco/xctest-dynamic-overlay
+
+Fetching from https://github.com/swiftlang/swift-syntax
+
+Fetching from https://github.com/google/GoogleUtilities.git
+
+Fetching from https://github.com/krzyzanowskim/OpenSSL.git
+
+Fetching from https://github.com/google/grpc-binary.git
+
+Fetching from https://github.com/firebase/firebase-ios-sdk
+
+Fetching from https://github.com/google/gtm-session-fetcher.git
+
+Fetching from https://github.com/firebase/nanopb.git
+
+Fetching from https://github.com/swiftlang/swift-docc-plugin
+
+Fetching from https://github.com/google/promises.git
+
+Fetching from https://github.com/drmohundro/SWXMLHash.git
+
+Fetching from https://github.com/google/interop-ios-for-google-sdks.git
+
+Fetching from https://github.com/swiftlang/swift-docc-symbolkit
+
+Fetching from https://github.com/google/GoogleAppMeasurement.git
+
+Fetching from https://github.com/google/GoogleDataTransport.git
+
+Fetching from https://github.com/firebase/leveldb.git
+
+Fetching from https://github.com/google/abseil-cpp-binary.git
+
+Fetching from https://github.com/google/app-check.git
+
+Fetching from https://github.com/googleads/google-ads-on-device-conversion-ios-sdk
+
+Fetching from https://github.com/pointfreeco/swift-custom-dump
+
+Fetching from https://github.com/pointfreeco/swift-perception.git
+
+Fetching from https://github.com/OlehKulykov/PLzmaSDK.git
+
+Creating working copy of package ‘promises’
+
+Checking out 2.4.0 of package ‘promises’
+
+Creating working copy of package ‘SWXMLHash’
+
+Checking out 7.0.2 of package ‘SWXMLHash’
+
+Creating working copy of package ‘abseil-cpp-binary’
+
+Checking out 1.2024072200.0 of package ‘abseil-cpp-binary’
+
+Creating working copy of package ‘firebase-ios-sdk’
+
+Checking out 12.16.0 of package ‘firebase-ios-sdk’
+
+Creating working copy of package ‘gtm-session-fetcher’
+
+Checking out 5.3.0 of package ‘gtm-session-fetcher’
+
+Creating working copy of package ‘nanopb’
+
+Checking out 2.30910.0 of package ‘nanopb’
+
+Creating working copy of package ‘app-check’
+
+Checking out 11.3.1 of package ‘app-check’
+
+Creating working copy of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Checking out 3.6.1 of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Creating working copy of package ‘swift-docc-symbolkit’
+
+Checking out 1.0.0 of package ‘swift-docc-symbolkit’
+
+Creating working copy of package ‘swift-docc-plugin’
+
+Checking out 1.5.0 of package ‘swift-docc-plugin’
+
+Creating working copy of package ‘MarqueeText’
+
+Checking out master (e18d514) of package ‘MarqueeText’
+
+Creating working copy of package ‘OpenSSL’
+
+Checking out 3.6.1 of package ‘OpenSSL’
+
+Creating working copy of package ‘CombineCocoa’
+
+Checking out main (c1bd62b) of package ‘CombineCocoa’
+
+Creating working copy of package ‘interop-ios-for-google-sdks’
+
+Checking out 101.0.0 of package ‘interop-ios-for-google-sdks’
+
+Creating working copy of package ‘swift-syntax’
+
+Checking out 603.0.2 of package ‘swift-syntax’
+
+Creating working copy of package ‘GoogleUtilities’
+
+Checking out 8.1.2 of package ‘GoogleUtilities’
+
+Creating working copy of package ‘GoogleDataTransport’
+
+Checking out 10.1.0 of package ‘GoogleDataTransport’
+
+Creating working copy of package ‘grpc-binary’
+
+Checking out 1.69.1 of package ‘grpc-binary’
+
+Creating working copy of package ‘PLzmaSDK’
+
+Checking out 1.6.1 of package ‘PLzmaSDK’
+
+Creating working copy of package ‘GoogleAppMeasurement’
+
+Checking out 12.16.0 of package ‘GoogleAppMeasurement’
+
+Creating working copy of package ‘swift-perception’
+
+Checking out 2.0.10 of package ‘swift-perception’
+
+Creating working copy of package ‘swift-custom-dump’
+
+Checking out 1.6.1 of package ‘swift-custom-dump’
+
+Creating working copy of package ‘leveldb’
+
+Checking out 1.22.5 of package ‘leveldb’
+
+Creating working copy of package ‘xctest-dynamic-overlay’
+
+Checking out 1.10.0 of package ‘xctest-dynamic-overlay’
+
+Downloading package prebuilt https://download.swift.org/prebuilts/swift-syntax/603.0.2/swiftlang-6.3.3.1.3-macosx26.5-MacroSupport.zip
+
+the target 'libplzma' in product 'PLzmaSDK' contains unsafe build flags
+Resolved source packages:
+  SwiftVLC: (null)
+
+xcodebuild: error: Could not resolve package dependencies:
+  the target 'libplzma' in product 'PLzmaSDK' contains unsafe build flags
+
