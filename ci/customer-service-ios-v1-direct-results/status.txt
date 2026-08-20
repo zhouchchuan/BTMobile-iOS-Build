@@ -1,6 +1,6 @@
-Customer Service iOS V1.0.1 Direct build
-status=cancelled
-source_commit=f2773dc9be36c2bc2d9160466f6435a2f3119d7a
-run_id=32363785504
+Customer Service iOS V1.0.2 Direct build
+status=success
+source_commit=e1a3afd28f4ae950d589c110abe4e65563943663
+run_id=32363866631
 run_attempt=1
-generated_utc=2026-08-20T11:26:52Z
+generated_utc=2026-08-20T11:28:02Z
