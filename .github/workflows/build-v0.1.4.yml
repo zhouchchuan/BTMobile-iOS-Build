@@ -1,0 +1,129 @@
+name: Build BTMobile V0.1.4 Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
+      - '.github/workflows/build-v0.1.4.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout private CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+
+      - name: Verify V0.1.4 overlay exists
+        run: |
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz || {
+            echo 'Missing ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
+            exit 1
+          }
+          shasum -a 256 ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+
+      - name: Checkout pinned iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Install build dependencies
+        run: |
+          brew install boost cmake
+
+      - name: Apply BTMobile V0.1.4 source overlay
+        run: |
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          test -f source/BTMOBILE_0.1.4_DEV.md
+          grep -q 'APPLICATION_ID = com.mxmall123.app' source/iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'MARKETING_VERSION = 0.1.4' source/iTorrent.xcodeproj/project.pbxproj
+          grep -q 'CURRENT_PROJECT_VERSION = 14' source/iTorrent.xcodeproj/project.pbxproj
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh
+
+      - name: Build unsigned Release app
+        working-directory: source
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace iTorrent.xcworkspace \
+            -scheme iTorrent \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Validate application metadata
+        run: |
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          test -d "$APP"
+          PLIST="$APP/Info.plist"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "Bundle ID: $BUNDLE"
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          test "$BUNDLE" = 'com.mxmall123.app'
+          test "$VERSION" = '0.1.4'
+          test "$BUILD" = '14'
+
+      - name: Package unsigned IPA
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          OUT="$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          rm -rf "$OUT/Payload/BTMobile.app/_CodeSignature"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" | tee "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned_SHA256.txt"
+          ls -lh "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V0.1.4_Unsigned_IPA
+          path: |
+            ${{ runner.temp }}/BTMobile_V0.1.4_Unsigned.ipa
+            ${{ runner.temp }}/BTMobile_V0.1.4_Unsigned_SHA256.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V0.1.4_Build_Log
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 7
+          if-no-files-found: ignore
