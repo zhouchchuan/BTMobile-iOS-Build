@@ -9,7 +9,7 @@ on:
       - '.github/workflows/build-customer-service-ios-v1.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: customer-service-ios-v1.0.0
@@ -117,3 +117,35 @@ jobs:
             ${{ runner.temp }}/xcodebuild.log
           retention-days: 7
           if-no-files-found: error
+
+      - name: Write build result back
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci/customer-service-ios-v1-results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+          {
+            echo 'Customer Service iOS V1.0.0 GitHub Actions build'
+            echo "status=$JOB_STATUS"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner=$RUNNER_OS"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+          if [ -f "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt" ]; then
+            cp "$RUNNER_TEMP/CustomerService_iOS_V1.0.0_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          fi
+          if [ -f "$RUNNER_TEMP/xcodebuild.log" ]; then
+            tail -n 240 "$RUNNER_TEMP/xcodebuild.log" > "$RESULT_DIR/xcodebuild-tail.log"
+          fi
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/customer-service-ios-v1-results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "CI result Customer Service iOS V1.0.0: $JOB_STATUS"
+          git pull --rebase origin customer-service-ios-v1.0.0
+          git push origin HEAD:customer-service-ios-v1.0.0
