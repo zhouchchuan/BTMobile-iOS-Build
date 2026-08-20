@@ -1,0 +1,8 @@
+BTMobile V0.1.5 GitHub Actions build
+status=cancelled
+xcode_outcome=cancelled
+source_commit=8dfd612b400926414bf6880b875c644bc11d5cfa
+run_id=32335016485
+run_attempt=1
+runner=macOS
+generated_utc=2026-08-20T05:19:35Z
