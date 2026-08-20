@@ -1,0 +1,186 @@
+name: Build BTMobile V0.1.4 ZIP Hotfix1 Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
+      - 'ci/build_v014.py'
+      - 'ci/archive_bridge_zip_hotfix1.c'
+      - '.github/workflows/build-v0.1.4-zip-hotfix1.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btmobile-v0.1.4-zip-hotfix1-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout private CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 0
+
+      - name: Verify hotfix inputs
+        run: |
+          set -e
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          test -f ci-repo/ci/build_v014.py
+          test -f ci-repo/ci/archive_bridge_zip_hotfix1.c
+          shasum -a 256 ci-repo/ci/archive_bridge_zip_hotfix1.c
+
+      - name: Checkout pinned iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+
+      - name: Install build dependencies
+        run: brew install boost
+
+      - name: Apply V0.1.4 overlay and ZIP Hotfix1
+        run: |
+          set -e
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          cp ci-repo/ci/archive_bridge_zip_hotfix1.c source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/iTorrent.xcodeproj/project.pbxproj')
+          s = p.read_text(encoding='utf-8')
+          old = 'CURRENT_PROJECT_VERSION = 14;\n\t\t\t\tMARKETING_VERSION = 0.1.4;'
+          new = 'CURRENT_PROJECT_VERSION = 15;\n\t\t\t\tMARKETING_VERSION = 0.1.4;'
+          count = s.count(old)
+          if count != 3:
+              raise SystemExit(f'Expected 3 V0.1.4 app build blocks, found {count}')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
+          grep -q 'APPLICATION_ID = com.mxmall123.app' source/iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'normalize_archive_path' source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 15' source/iTorrent.xcodeproj/project.pbxproj)" -ge 3
+          echo 'ZIP Hotfix1 source preparation passed.'
+
+      - name: Verify frozen BT core hashes before build
+        run: |
+          set -e
+          echo 'e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a  source/iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift' | shasum -a 256 -c -
+          # The compact CI base receives the V0.1.3 LibTorrent wrapper additions inside build_v014.py.
+          # No archive-hotfix step is allowed to edit LibTorrent files.
+          git -C source diff -- Submodules/LibTorrent-Swift/LibTorrent/Core || true
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          set +e
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh > "$RUNNER_TEMP/libtorrent-build.log" 2>&1
+          RC=$?
+          echo "$RC" > "$RUNNER_TEMP/libtorrent.exit"
+          cat "$RUNNER_TEMP/libtorrent-build.log"
+          exit "$RC"
+
+      - name: Build unsigned Release app
+        id: xcodebuild
+        continue-on-error: true
+        working-directory: source
+        run: python3 ../ci-repo/ci/build_v014.py
+
+      - name: Show Xcode diagnostics
+        if: always()
+        run: |
+          set +e
+          test -f "$RUNNER_TEMP/xcode-summary.txt" && cat "$RUNNER_TEMP/xcode-summary.txt"
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: exit 1
+
+      - name: Validate application metadata
+        if: steps.xcodebuild.outcome == 'success'
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          PLIST="$APP/Info.plist"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "Bundle ID: $BUNDLE"
+          echo "Version: $VERSION"
+          echo "Build: $BUILD"
+          test "$BUNDLE" = 'com.mxmall123.app'
+          test "$VERSION" = '0.1.4'
+          test "$BUILD" = '15'
+
+      - name: Package ZIP Hotfix1 unsigned IPA
+        if: steps.xcodebuild.outcome == 'success'
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          OUT="$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          rm -rf "$OUT/Payload/BTMobile.app/_CodeSignature"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned.ipa" | tee "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned_SHA256.txt"
+          ls -lh "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned.ipa"
+
+      - name: Upload ZIP Hotfix1 IPA artifact
+        if: steps.xcodebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned_IPA
+          path: |
+            ${{ runner.temp }}/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned.ipa
+            ${{ runner.temp }}/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned_SHA256.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Persist Hotfix1 result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          XCODE_OUTCOME: ${{ steps.xcodebuild.outcome }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci-repo/ci/hotfix-results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+          {
+            echo 'BTMobile V0.1.4 ZIP Hotfix1 GitHub Actions build'
+            echo "status=$JOB_STATUS"
+            echo "xcode_outcome=$XCODE_OUTCOME"
+            echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner=$RUNNER_OS"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+          for F in libtorrent-build.log libtorrent.exit xcodebuild.log xcodebuild.exit xcode-summary.txt; do
+            if [ -f "$RUNNER_TEMP/$F" ]; then cp "$RUNNER_TEMP/$F" "$RESULT_DIR/$F"; fi
+          done
+          if [ -f "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned_SHA256.txt" ]; then
+            cp "$RUNNER_TEMP/BTMobile_V0.1.4_ZIP_Hotfix1_Unsigned_SHA256.txt" "$RESULT_DIR/"
+          fi
+          cd "$GITHUB_WORKSPACE/ci-repo"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/hotfix-results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "CI result V0.1.4 ZIP Hotfix1: $JOB_STATUS"
+          git pull --rebase origin main
+          git push origin HEAD:main
