@@ -9,17 +9,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func requestPushPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            if granted {
-                DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
-            }
-        }
-    }
-
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(token, forKey: "apnsDeviceToken")
         NotificationCenter.default.post(name: .apnsToken, object: token)
     }
 
