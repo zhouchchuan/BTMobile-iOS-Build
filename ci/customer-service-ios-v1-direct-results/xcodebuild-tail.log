@@ -1,0 +1,164 @@
+Command line invocation:
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/xcodebuild -project CustomerServiceApp.xcodeproj -scheme CustomerServiceApp -configuration Release -sdk iphoneos -derivedDataPath /Users/runner/work/_temp/CustomerServiceDerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= build
+
+Build settings from command line:
+    CODE_SIGN_IDENTITY = 
+    CODE_SIGNING_ALLOWED = NO
+    CODE_SIGNING_REQUIRED = NO
+    DEVELOPMENT_TEAM = 
+    SDKROOT = iphoneos26.5
+
+note: Using codesigning identity override: 
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'CustomerServiceApp' in project 'CustomerServiceApp' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ibtool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: f3f95c0e43383e8cd5baec762f016066
+Build description path: /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/XCBuildData/f3f95c0e43383e8cd5baec762f016066.xcbuilddata
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex
+
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products
+
+ClangStatCache /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk /Users/runner/work/_temp/CustomerServiceDerivedData/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk -o /Users/runner/work/_temp/CustomerServiceDerivedData/SDKStatCaches.noindex/iphoneos26.5-23F81a-688ef53f1462e2c8f657fdc38a81448fee66e23052a0157c865c76b268046726.sdkstatcache
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp-d9552b034663f611635cb21c3d2822a2-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp-d9552b034663f611635cb21c3d2822a2-VFS-iphoneos/all-product-headers.yaml
+
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos
+
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/ExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp.xcodeproj
+    builtin-create-build-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp_const_extract_protocols.json (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.SwiftFileList (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.SwiftConstValuesFileList (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.LinkFileList (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp-OutputFileMap.json (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/Objects-normal/arm64/CustomerServiceApp-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.hmap
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.DependencyStaticMetadataFileList (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.DependencyMetadataFileList (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-project-headers.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-project-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-own-target-headers.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-generated-files.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-generated-files.hmap
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-all-target-headers.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-all-non-framework-target-headers.hmap (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    write-file /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/CustomerServiceApp-all-non-framework-target-headers.hmap
+
+MkDir /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /bin/mkdir -p /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app
+
+MkDir /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_output/unthinned (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /bin/mkdir -p /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_output/unthinned
+
+MkDir /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_output/thinned (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /bin/mkdir -p /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_output/thinned
+
+GenerateAssetSymbols /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/Assets.xcassets (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/Assets.xcassets --compile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_dependencies --output-partial-info-plist /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_generated_info.plist --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 16.0 --platform iphoneos --bundle-identifier com.yuyanfriends.app --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+CpResource /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app/LaunchBackground.svg /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/LaunchBackground.svg (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/LaunchBackground.svg /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app
+
+CpResource /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app/BrandIcon.svg /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/BrandIcon.svg (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/BrandIcon.svg /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app
+
+CompileStoryboard /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/LaunchScreen.storyboard (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/ibtool --errors --warnings --notices --module CustomerServiceApp --output-partial-info-plist /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/LaunchScreen-SBPartialInfo.plist --auto-activate-custom-fonts --target-device iphone --minimum-deployment-target 16.0 --output-format human-readable-text /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/LaunchScreen.storyboard --compilation-directory /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build
+
+CompileAssetCatalogVariant thinned /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Products/Release-iphoneos/CustomerServiceApp.app /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/Assets.xcassets (in target 'CustomerServiceApp' from project 'CustomerServiceApp')
+    cd /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/BTMobile-iOS-Build/BTMobile-iOS-Build/ci/customer-service-ios-v1-direct/CustomerServiceApp/Assets.xcassets --compile /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/runner/work/_temp/CustomerServiceDerivedData/Build/Intermediates.noindex/CustomerServiceApp.build/Release-iphoneos/CustomerServiceApp.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 16.0 --platform iphoneos
