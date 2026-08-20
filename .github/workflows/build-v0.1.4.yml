@@ -29,10 +29,7 @@ jobs:
       - name: Verify V0.1.4 overlay exists
         run: |
           set -e
-          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz || {
-            echo 'Missing ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
-            exit 1
-          }
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
           echo 'Overlay SHA256:'
           shasum -a 256 ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
 
@@ -72,14 +69,38 @@ jobs:
       - name: Configure LibTorrent
         working-directory: source
         run: |
-          set -o pipefail
+          set +e
           chmod +x ./Submodules/LibTorrent-Swift/make.sh
-          ./Submodules/LibTorrent-Swift/make.sh 2>&1 | tee "$RUNNER_TEMP/libtorrent-build.log"
+          ./Submodules/LibTorrent-Swift/make.sh > "$RUNNER_TEMP/libtorrent-build.log" 2>&1
+          RC=$?
+          echo "$RC" > "$RUNNER_TEMP/libtorrent.exit"
+          cat "$RUNNER_TEMP/libtorrent-build.log"
+          exit "$RC"
+
+      - name: Preflight Xcode workspace
+        working-directory: source
+        run: |
+          set +e
+          {
+            echo 'PWD:'
+            pwd
+            echo 'Workspace:'
+            ls -la iTorrent.xcworkspace
+            echo 'Shared schemes:'
+            find iTorrent.xcodeproj/xcshareddata/xcschemes -maxdepth 1 -type f -print
+            echo 'xcodebuild -list:'
+            xcodebuild -list -workspace iTorrent.xcworkspace
+          } > "$RUNNER_TEMP/xcode-preflight.log" 2>&1
+          RC=$?
+          echo "$RC" > "$RUNNER_TEMP/xcode-preflight.exit"
+          cat "$RUNNER_TEMP/xcode-preflight.log"
+          exit "$RC"
 
       - name: Build unsigned Release app
         working-directory: source
         run: |
-          set -o pipefail
+          set +e
+          echo 'Starting xcodebuild...' > "$RUNNER_TEMP/xcodebuild.log"
           xcodebuild \
             -workspace iTorrent.xcworkspace \
             -scheme iTorrent \
@@ -91,10 +112,14 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY='' \
-            DEVELOPMENT_TEAM='' \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            clean build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+            clean build >> "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          RC=$?
+          echo "$RC" > "$RUNNER_TEMP/xcodebuild.exit"
+          cat "$RUNNER_TEMP/xcodebuild.log"
+          exit "$RC"
 
       - name: Validate application metadata
         run: |
@@ -149,16 +174,17 @@ jobs:
             echo "BTMobile V0.1.4 GitHub Actions build"
             echo "status=$JOB_STATUS"
             echo "source_commit=$GITHUB_SHA"
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
             echo "runner=$RUNNER_OS"
             echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           } > "$RESULT_DIR/status.txt"
 
-          if [ -f "$RUNNER_TEMP/xcodebuild.log" ]; then
-            tail -n 5000 "$RUNNER_TEMP/xcodebuild.log" > "$RESULT_DIR/xcodebuild_tail.log"
-          fi
-          if [ -f "$RUNNER_TEMP/libtorrent-build.log" ]; then
-            tail -n 3000 "$RUNNER_TEMP/libtorrent-build.log" > "$RESULT_DIR/libtorrent_tail.log"
-          fi
+          for F in libtorrent-build.log libtorrent.exit xcode-preflight.log xcode-preflight.exit xcodebuild.log xcodebuild.exit; do
+            if [ -f "$RUNNER_TEMP/$F" ]; then
+              cp "$RUNNER_TEMP/$F" "$RESULT_DIR/$F"
+            fi
+          done
 
           if [ -f "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" ]; then
             cp "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned_SHA256.txt" "$RESULT_DIR/BTMobile_V0.1.4_Unsigned_SHA256.txt"
