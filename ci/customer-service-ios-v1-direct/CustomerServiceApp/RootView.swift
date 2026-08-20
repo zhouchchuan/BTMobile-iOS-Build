@@ -7,7 +7,7 @@ struct RootView: View {
         Group {
             if vm.loggedIn { MainView() } else { LoginView() }
         }
-        .animation(0.2, value: vm.loggedIn)
+        .animation(.easeInOut(duration: 0.2), value: vm.loggedIn)
     }
 }
 
