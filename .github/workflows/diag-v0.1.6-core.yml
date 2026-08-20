@@ -1,0 +1,83 @@
+name: Diagnose BTMobile V0.1.6 Core Freeze
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/v016-core-debug-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 0
+
+      - name: Checkout pinned iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: v2.2.0-1
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Apply V0.1.4 overlay
+        run: |
+          set -e
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+
+      - name: Reproduce build_v014 core preparation only
+        working-directory: source
+        run: |
+          set -e
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          script = Path('../ci-repo/ci/build_v014.py').resolve()
+          spec = importlib.util.spec_from_file_location('build_v014', script)
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          root = Path.cwd()
+          mod.restore_v013_libtorrent_baseline(root)
+          mod.fix_v014_storage_combine(root)
+          PY
+
+      - name: Record exact hashes
+        run: |
+          set -e
+          cd source
+          RESULT="$GITHUB_WORKSPACE/ci-repo/ci/v016-core-debug-results.txt"
+          {
+            echo 'BTMobile V0.1.6 core freeze diagnostic'
+            echo "TorrentDetails=$(sha256sum iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift | awk '{print $1}')"
+            echo "TorrentHandle.h=$(sha256sum Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h | awk '{print $1}')"
+            echo "TorrentHandle.mm=$(sha256sum Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm | awk '{print $1}')"
+            echo "SessionSettings.mm=$(sha256sum Submodules/LibTorrent-Swift/LibTorrent/Core/SessionSettings/SessionSettings.mm | awk '{print $1}')"
+            echo "Session.mm=$(sha256sum Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm | awk '{print $1}')"
+            echo 'EXPECTED V0.1.5 STABLE:'
+            echo 'TorrentDetails=e7536323ef11ecb2082f7c982a6c2ede2312ca283a91010c26c32b1651a2621a'
+            echo 'TorrentHandle.h=251de6d80f37c6b28e42a462c7654d0c987d07463150d8454e08a11cb931b728'
+            echo 'TorrentHandle.mm=ca194dd4228f171105abfd5aac284294acc7aae887308bdf6448340750274227'
+            echo 'SessionSettings.mm=02debe4d7e5641912d4d421f135eba7d5ad7d7741bb167f221055d307c25aa0e'
+            echo 'Session.mm=92383097d81c8edb9178b8efe9307432d9cb7b22fe39c0c6f85d331b4a1cfb4c'
+          } | tee "$RESULT"
+
+      - name: Commit diagnostics
+        if: always()
+        run: |
+          cd ci-repo
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/v016-core-debug-results.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'V0.1.6 core freeze diagnostics'
+          git pull --rebase origin main
+          git push origin HEAD:main
