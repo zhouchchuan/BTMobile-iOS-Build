@@ -8,3 +8,4 @@
 - Distribution Team: XTGL9G753G
 - V1.0.3: session-token message isolation + PWA push helper
 - Build 5 hotfix: manual day/night appearance switch + dark-mode chat bubble readability fix
+- Build trigger: workflow updated for Build 5
