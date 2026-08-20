@@ -8,7 +8,11 @@ on:
       - '.github/workflows/build-v0.1.4.yml'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: btmobile-v0.1.4-build
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -20,13 +24,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ci-repo
+          fetch-depth: 0
 
       - name: Verify V0.1.4 overlay exists
         run: |
+          set -e
           test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz || {
             echo 'Missing ci/BTMobile_V0.1.4_CI_Overlay.tar.gz'
             exit 1
           }
+          echo 'Overlay SHA256:'
           shasum -a 256 ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
 
       - name: Checkout pinned iTorrent base
@@ -43,23 +50,31 @@ jobs:
         with:
           xcode-version: '26.6'
 
-      - name: Install build dependencies
+      - name: Print build environment
         run: |
-          brew install boost cmake
+          sw_vers
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Install build dependencies
+        run: brew install boost
 
       - name: Apply BTMobile V0.1.4 source overlay
         run: |
+          set -e
           tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
           test -f source/BTMOBILE_0.1.4_DEV.md
           grep -q 'APPLICATION_ID = com.mxmall123.app' source/iTorrent/Core/Assets/iTorrent.xcconfig
           grep -q 'MARKETING_VERSION = 0.1.4' source/iTorrent.xcodeproj/project.pbxproj
           grep -q 'CURRENT_PROJECT_VERSION = 14' source/iTorrent.xcodeproj/project.pbxproj
+          echo 'V0.1.4 overlay checks passed.'
 
       - name: Configure LibTorrent
         working-directory: source
         run: |
+          set -o pipefail
           chmod +x ./Submodules/LibTorrent-Swift/make.sh
-          ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh 2>&1 | tee "$RUNNER_TEMP/libtorrent-build.log"
 
       - name: Build unsigned Release app
         working-directory: source
@@ -79,10 +94,11 @@ jobs:
             CODE_SIGN_IDENTITY='' \
             DEVELOPMENT_TEAM='' \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            clean build | tee "$RUNNER_TEMP/xcodebuild.log"
+            clean build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
 
       - name: Validate application metadata
         run: |
+          set -e
           APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
           test -d "$APP"
           PLIST="$APP/Info.plist"
@@ -109,7 +125,7 @@ jobs:
           shasum -a 256 "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" | tee "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned_SHA256.txt"
           ls -lh "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa"
 
-      - name: Upload unsigned IPA
+      - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: BTMobile_V0.1.4_Unsigned_IPA
@@ -119,11 +135,71 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: BTMobile_V0.1.4_Build_Log
-          path: ${{ runner.temp }}/xcodebuild.log
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Write build result back to private repository
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          RESULT_DIR="$GITHUB_WORKSPACE/ci-repo/ci/results"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR"
+
+          {
+            echo "BTMobile V0.1.4 GitHub Actions build"
+            echo "status=$JOB_STATUS"
+            echo "source_commit=$GITHUB_SHA"
+            echo "runner=$RUNNER_OS"
+            echo "generated_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } > "$RESULT_DIR/status.txt"
+
+          if [ -f "$RUNNER_TEMP/xcodebuild.log" ]; then
+            tail -n 5000 "$RUNNER_TEMP/xcodebuild.log" > "$RESULT_DIR/xcodebuild_tail.log"
+          fi
+          if [ -f "$RUNNER_TEMP/libtorrent-build.log" ]; then
+            tail -n 3000 "$RUNNER_TEMP/libtorrent-build.log" > "$RESULT_DIR/libtorrent_tail.log"
+          fi
+
+          if [ -f "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" ]; then
+            cp "$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned_SHA256.txt" "$RESULT_DIR/BTMobile_V0.1.4_Unsigned_SHA256.txt"
+            IPA_PATH="$RUNNER_TEMP/BTMobile_V0.1.4_Unsigned.ipa" RESULT_DIR="$RESULT_DIR" python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          src = Path(os.environ['IPA_PATH'])
+          out = Path(os.environ['RESULT_DIR'])
+          chunk_size = 512 * 1024
+          h = hashlib.sha256()
+          count = 0
+          size = 0
+          with src.open('rb') as f:
+              while True:
+                  data = f.read(chunk_size)
+                  if not data:
+                      break
+                  h.update(data)
+                  size += len(data)
+                  (out / f'BTMobile_V0.1.4_Unsigned.ipa.part.{count:04d}').write_bytes(data)
+                  count += 1
+          (out / 'manifest.txt').write_text(
+              f'filename=BTMobile_V0.1.4_Unsigned.ipa\n'
+              f'size={size}\n'
+              f'sha256={h.hexdigest()}\n'
+              f'chunk_size={chunk_size}\n'
+              f'chunks={count}\n'
+          )
+          PY
+          fi
+
+          cd "$GITHUB_WORKSPACE/ci-repo"
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add -f ci/results
+          if git diff --cached --quiet; then
+            echo 'No result changes to commit.'
+            exit 0
+          fi
+          git commit -m "CI result V0.1.4: $JOB_STATUS"
+          git pull --rebase origin main
+          git push origin HEAD:main
