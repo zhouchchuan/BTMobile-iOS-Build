@@ -1,0 +1,5 @@
+filename=BTMobile_V0.1.4_Unsigned.ipa
+size=26112305
+sha256=629330285ddf0506eb0fbb04a79fa22d32a1850019fa9433a111fc6c7148856b
+chunk_size=524288
+chunks=50
