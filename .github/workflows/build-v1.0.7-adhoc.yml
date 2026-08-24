@@ -41,11 +41,13 @@ jobs:
           P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
           PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
         run: |
           set -e
           test -n "$P12_BASE64"
           test -n "$P12_PASSWORD"
           test -n "$PROFILE_BASE64"
+          test -n "$ARTIFACT_PASSWORD"
 
       - name: Install build dependency
         run: brew install boost
@@ -164,6 +166,7 @@ jobs:
           P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
           PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
         run: |
           set -e
           APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
@@ -236,16 +239,29 @@ jobs:
           /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc.ipa" Payload
           shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc.ipa" | tee "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc_SHA256.txt"
 
-      - name: Upload signed IPA
+          PRIVATE_BUNDLE="$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle"
+          mkdir -p "$PRIVATE_BUNDLE"
+          cp "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc.ipa" "$PRIVATE_BUNDLE/"
+          cp "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc_SHA256.txt" "$PRIVATE_BUNDLE/"
+          cp "$SIGNED_ENTITLEMENTS" "$PRIVATE_BUNDLE/"
+          tar -czf "$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle.tar.gz" -C "$PRIVATE_BUNDLE" .
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass env:ARTIFACT_PASSWORD \
+            -in "$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle.tar.gz" \
+            -out "$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle.tar.gz.enc"
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle.tar.gz.enc" > "$RUNNER_TEMP/BTMobile_V1.0.7_Encrypted_SHA256.txt"
+          rm -rf "$PRIVATE_BUNDLE" "$RUNNER_TEMP/BTMobile_V1.0.7_Private_Bundle.tar.gz"
+          rm -f "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc.ipa" "$RUNNER_TEMP/BTMobile_V1.0.7_AdHoc_SHA256.txt" "$SIGNED_ENTITLEMENTS"
+
+      - name: Upload encrypted signed IPA bundle
         if: steps.xcodebuild.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: BTMobile_V1.0.7_AdHoc_IPA
           path: |
-            ${{ runner.temp }}/BTMobile_V1.0.7_AdHoc.ipa
-            ${{ runner.temp }}/BTMobile_V1.0.7_AdHoc_SHA256.txt
-            ${{ runner.temp }}/BTMobile_V1.0.7_Signed_Entitlements.plist
-          retention-days: 14
+            ${{ runner.temp }}/BTMobile_V1.0.7_Private_Bundle.tar.gz.enc
+            ${{ runner.temp }}/BTMobile_V1.0.7_Encrypted_SHA256.txt
+          retention-days: 1
           if-no-files-found: error
 
       - name: Upload build diagnostics
