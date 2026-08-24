@@ -1,0 +1,297 @@
+name: Build BTMobile iOS V1.0.9 Ad Hoc
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btmobile-ios-v1.0.9-adhoc
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 1
+
+      - name: Checkout latest verified public iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: e95af51ff84b45f4a5de075aa024a75ed2a19bdb
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.6"
+
+      - name: Validate signing secrets
+        env:
+          P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
+        run: |
+          set -e
+          test -n "$P12_BASE64"
+          test -n "$P12_PASSWORD"
+          test -n "$PROFILE_BASE64"
+          test -n "$ARTIFACT_PASSWORD"
+
+      - name: Install build dependency
+        run: brew install boost
+
+      - name: Reconstruct verified V0.1.6 Build19 baseline
+        run: |
+          set -e
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          test -f ci-repo/ci/v016-files/archive_bridge_build18.c
+          test -f ci-repo/ci/v016-files/TorrentList_build18.patch
+          test -f ci-repo/ci/v016-build19/ArchiveExtractor.swift
+          test -f ci-repo/ci/v016-build19/Package.swift
+          for N in 00 01 02 03 04; do
+            test -f "ci-repo/ci/v016-files/TorrentList.patch.part$N"
+          done
+
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          cp ci-repo/ci/v016-files/archive_bridge_build18.c source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          cp ci-repo/ci/v016-build19/ArchiveExtractor.swift source/Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          cp ci-repo/ci/v016-build19/Package.swift source/Submodules/SwiftVLC/Package.swift
+          cat ci-repo/ci/v016-files/TorrentList.patch.part* > "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+
+          test "$(shasum -a 256 "$RUNNER_TEMP/TorrentList_v014_to_v016.patch" | awk '{print $1}')" = "b69f7659a48954b8ac2edbfc0bc38d9d1e1e898318d22feb7c8e9c9311617541"
+          test "$(shasum -a 256 ci-repo/ci/v016-files/TorrentList_build18.patch | awk '{print $1}')" = "7d127195eb987a5cc7bc195a5c40cbfe15a9b5f238d0ff99fed6bd525ced5fdd"
+
+          cd source
+          patch -p1 < "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+          patch -p1 < ../ci-repo/ci/v016-files/TorrentList_build18.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("iTorrent.xcodeproj/project.pbxproj")
+          source = path.read_text(encoding="utf-8")
+          if source.count("MARKETING_VERSION = 0.1.4;") != 3:
+              raise SystemExit("Unexpected V0.1.4 marketing version count")
+          if source.count("CURRENT_PROJECT_VERSION = 14;") != 3:
+              raise SystemExit("Unexpected V0.1.4 build version count")
+          source = source.replace("MARKETING_VERSION = 0.1.4;", "MARKETING_VERSION = 0.1.6;")
+          source = source.replace("CURRENT_PROJECT_VERSION = 14;", "CURRENT_PROJECT_VERSION = 19;")
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Apply verified V1.0.7 baseline
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.7_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "e2309d00d6e7812414062534cdcde90bd16c26f59fade3a2a63bb39087c4821f"
+          tar -xzf "$OVERLAY" -C source
+
+      - name: Apply BT Mobile V1.0.8 fixes
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.8_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "f85d87b4f150f031fdf0d058373dbc8301fbc667b8717f0d450aed207091ef1d"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.0.8;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 108;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'APPLICATION_ID = com.mxmall123.app' iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'isManualFullscreen' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'rawURLPattern' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'recoverAfterBackgroundSuspension' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'swiftvlc_archive_extract_volumes' Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          grep -q 'isZipVolume' Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          grep -q 'progressPPM' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm
+          grep -q 'Atorrent' iTorrent/Services/Preferences/PreferencesStorage.swift
+          ! grep -q 'Embed Foundation Extensions' iTorrent.xcodeproj/project.pbxproj
+          ! grep -q 'group.itorrent.life-activity' iTorrent/Core/Assets/iTorrent.entitlements
+
+      - name: Apply BT Mobile V1.0.9 upstream background core
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.9_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "c39e3f05a073da1d47582849b7377849c491c191770f0482b05cb8e7d5e0cdce"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.0.9;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 109;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'btmobileV109BackgroundMigration' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'settings.agentName = "iTorrent/' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'return "-IT' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'await runBackgroundTask()' iTorrent/Services/BackgroundService/AudioBackgroundService.swift
+          grep -q 'Task.sleep(for: .seconds(10))' iTorrent/Services/BackgroundService/AudioBackgroundService.swift
+          ! grep -q 'Atorrent' iTorrent/Services/Preferences/PreferencesStorage.swift
+          ! grep -q 'recoverAfterBackgroundSuspension' iTorrent/Services/TorrentService/TorrentService.swift
+
+      - name: Syntax preflight
+        working-directory: source
+        run: |
+          set -e
+          for FILE in \
+            iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift \
+            iTorrent/Screens/TorrentFiles/TorrentFilesViewController.swift \
+            iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift \
+            iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift \
+            iTorrent/Services/BackgroundService/AudioBackgroundService.swift \
+            iTorrent/Services/BackgroundService/BackgroundService.swift \
+            iTorrent/Services/Preferences/PreferencesStorage.swift \
+            iTorrent/Core/SceneDelegate/SceneDelegate+Bindings.swift \
+            iTorrent/Core/SceneDelegate/SceneDelegate.swift \
+            iTorrent/Screens/Preferences/Root/PreferencesViewModel.swift \
+            iTorrent/Services/TorrentService/TorrentService.swift \
+            iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift \
+            iTorrent/Screens/TorrentList/TorrentListViewController.swift \
+            Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift; do
+            xcrun swiftc -frontend -parse "$FILE"
+          done
+          xcrun clang -std=c11 -fsyntax-only -ISubmodules/SwiftVLC/Sources/CLibVLC/include Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          plutil -lint iTorrent/Core/Assets/Info.plist iTorrent/Core/Assets/iTorrent.entitlements
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          set -e
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh
+
+      - name: Build unsigned Release application
+        id: xcodebuild
+        continue-on-error: true
+        working-directory: source
+        run: python3 ../ci-repo/ci/build_v014.py
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: exit 1
+
+      - name: Validate, sign and package IPA
+        if: steps.xcodebuild.outcome == 'success'
+        env:
+          P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          test -d "$APP"
+
+          PLIST="$APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "com.mxmall123.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.0.9"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "109"
+
+          CERTIFICATE="$RUNNER_TEMP/btmobile.p12"
+          PROFILE="$RUNNER_TEMP/btmobile.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/btmobile-profile.plist"
+          ENTITLEMENTS="$RUNNER_TEMP/btmobile-entitlements.plist"
+          KEYCHAIN="$RUNNER_TEMP/btmobile-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          cleanup() {
+            security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
+            rm -f "$CERTIFICATE" "$PROFILE" "$PROFILE_PLIST" "$ENTITLEMENTS"
+          }
+          trap cleanup EXIT
+
+          printf '%s' "$P12_BASE64" | /usr/bin/base64 -D > "$CERTIFICATE"
+          printf '%s' "$PROFILE_BASE64" | /usr/bin/base64 -D > "$PROFILE"
+          security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")
+          test "${PROFILE_APP_ID#*.}" = "com.mxmall123.app"
+          /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$PROFILE_PLIST" >/dev/null
+          if /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' "$PROFILE_PLIST" >/dev/null 2>&1; then
+            echo "Unexpected App Group entitlement in provisioning profile"
+            exit 1
+          fi
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1 {print $2}')
+          test -n "$SIGNING_IDENTITY"
+
+          rm -rf "$APP/PlugIns" "$APP/_CodeSignature"
+          cp "$PROFILE" "$APP/embedded.mobileprovision"
+          /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$PROFILE_PLIST" > "$ENTITLEMENTS"
+
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' ITEM; do
+              codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --timestamp=none "$ITEM"
+            done
+            find "$APP/Frameworks" -depth -type d -name '*.framework' -print0 | while IFS= read -r -d '' ITEM; do
+              codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --timestamp=none "$ITEM"
+            done
+          fi
+
+          codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --entitlements "$ENTITLEMENTS" --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/BTMobile_V1.0.9_Signed_Entitlements.plist"
+          codesign -d --entitlements :- "$APP" > "$SIGNED_ENTITLEMENTS"
+          ! grep -q 'application-groups' "$SIGNED_ENTITLEMENTS"
+
+          OUT="$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc.ipa" | tee "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc_SHA256.txt"
+
+          PRIVATE_BUNDLE="$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle"
+          mkdir -p "$PRIVATE_BUNDLE"
+          cp "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc.ipa" "$PRIVATE_BUNDLE/"
+          cp "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc_SHA256.txt" "$PRIVATE_BUNDLE/"
+          cp "$SIGNED_ENTITLEMENTS" "$PRIVATE_BUNDLE/"
+          tar -czf "$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle.tar.gz" -C "$PRIVATE_BUNDLE" .
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass env:ARTIFACT_PASSWORD \
+            -in "$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle.tar.gz" \
+            -out "$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle.tar.gz.enc"
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle.tar.gz.enc" > "$RUNNER_TEMP/BTMobile_V1.0.9_Encrypted_SHA256.txt"
+          rm -rf "$PRIVATE_BUNDLE" "$RUNNER_TEMP/BTMobile_V1.0.9_Private_Bundle.tar.gz"
+          rm -f "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc.ipa" "$RUNNER_TEMP/BTMobile_V1.0.9_AdHoc_SHA256.txt" "$SIGNED_ENTITLEMENTS"
+
+      - name: Upload encrypted signed IPA bundle
+        if: steps.xcodebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V1.0.9_AdHoc_IPA
+          path: |
+            ${{ runner.temp }}/BTMobile_V1.0.9_Private_Bundle.tar.gz.enc
+            ${{ runner.temp }}/BTMobile_V1.0.9_Encrypted_SHA256.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V1.0.9_Build_Diagnostics
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/xcodebuild.exit
+            ${{ runner.temp }}/xcode-summary.txt
+          retention-days: 7
+          if-no-files-found: warn
