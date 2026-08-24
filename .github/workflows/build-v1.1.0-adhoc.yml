@@ -139,12 +139,12 @@ jobs:
           ! grep -q 'Atorrent' iTorrent/Services/Preferences/PreferencesStorage.swift
           ! grep -q 'recoverAfterBackgroundSuspension' iTorrent/Services/TorrentService/TorrentService.swift
 
-      - name: Apply BT Mobile V1.1.0 TXT link fix
+      - name: Apply BT Mobile V1.1.0 TXT links and progressive playback
         run: |
           set -e
           OVERLAY="ci-repo/ci/BTMobile_V1.1.0_Overlay.tar.gz"
           test -f "$OVERLAY"
-          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "3d67788a751757713822b752f428bd40413b6b4964f668ce97d6b4c9af3f3eda"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "4e923d98ce63df930672e3b1b3d98425dcef342beda79e00961a94a48cd8e44b"
           tar -xzf "$OVERLAY" -C source
 
           cd source
@@ -154,6 +154,10 @@ jobs:
           grep -q 'primaryActionFor textItem: UITextItem' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
           grep -q 'openWebLink' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
           grep -q 'A-Za-z0-9._~:' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'prioritizeStreaming(fileIndex:progress:windowPieceCount:)' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h
+          grep -q 'set_piece_deadline' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm
+          grep -q 'prioritizeStreaming(playbackTime:' iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift
+          grep -q 'finishStreamingPlayback' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
 
       - name: Syntax preflight
         working-directory: source
