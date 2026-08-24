@@ -48,6 +48,12 @@ def restore_v013_libtorrent_baseline(source_root: pathlib.Path) -> None:
             NSString *host = [NSString stringWithUTF8String:addressString.c_str()];
             if (host == nil || host.length == 0) { continue; }
             unsigned int port = static_cast<unsigned int>(endpoint.port());
+            int downloadRate = peer.down_speed > peer.payload_down_speed
+                ? peer.down_speed : peer.payload_down_speed;
+            int uploadRate = peer.up_speed > peer.payload_up_speed
+                ? peer.up_speed : peer.payload_up_speed;
+            downloadRate = downloadRate < 0 ? 0 : downloadRate;
+            uploadRate = uploadRate < 0 ? 0 : uploadRate;
             NSString *client = peer.client.empty() ? @"" : ([NSString stringWithUTF8String:peer.client.c_str()] ?: @"");
             NSString *transport = (peer.flags & lt::peer_info::utp_socket) ? @"uTP" : @"TCP";
             NSString *direction = (peer.flags & lt::peer_info::outgoing_connection) ? @"OUT" : @"IN";
@@ -55,10 +61,11 @@ def restore_v013_libtorrent_baseline(source_root: pathlib.Path) -> None:
             [result addObject:@{
                 @"ip": host,
                 @"port": [NSString stringWithFormat:@"%u", port],
-                @"downloadRate": [NSString stringWithFormat:@"%d", peer.payload_down_speed],
-                @"uploadRate": [NSString stringWithFormat:@"%d", peer.payload_up_speed],
+                @"downloadRate": [NSString stringWithFormat:@"%d", downloadRate],
+                @"uploadRate": [NSString stringWithFormat:@"%d", uploadRate],
                 @"totalDownload": [NSString stringWithFormat:@"%lld", (long long)peer.total_download],
                 @"totalUpload": [NSString stringWithFormat:@"%lld", (long long)peer.total_upload],
+                @"progressPPM": [NSString stringWithFormat:@"%d", peer.progress_ppm],
                 @"client": client,
                 @"transport": transport,
                 @"direction": direction,
