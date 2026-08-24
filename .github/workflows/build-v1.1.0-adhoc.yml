@@ -144,7 +144,7 @@ jobs:
           set -e
           OVERLAY="ci-repo/ci/BTMobile_V1.1.0_Overlay.tar.gz"
           test -f "$OVERLAY"
-          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "4e923d98ce63df930672e3b1b3d98425dcef342beda79e00961a94a48cd8e44b"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "f1ea152d1d4a7d32c4a29eb67b91557dc72ad98a884a61ca3fda489203022dc9"
           tar -xzf "$OVERLAY" -C source
 
           cd source
