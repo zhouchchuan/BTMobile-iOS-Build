@@ -1,4 +1,4 @@
-name: Build BTMobile iOS V1.1.4 Ad Hoc
+name: Build BTMobile iOS V1.1.5 Ad Hoc
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: btmobile-ios-v1.1.4-adhoc
+  group: btmobile-ios-v1.1.5-adhoc
   cancel-in-progress: false
 
 jobs:
@@ -243,6 +243,30 @@ jobs:
           grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
           grep -q 'ssa-fontsdir=' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
 
+      - name: Apply BT Mobile V1.1.5 seamless foreground and live Peer cards
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.5_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "514bd5d2a4174bb2a9cb11c9992ad4b5ed6c2015c1b64fb1e67d445c8dbfadb1"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.5;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 115;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'backgroundCheckpoint' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'recoverAfterForeground(force: true)' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'shouldPreserveSession' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'madeProgress || hasLiveTransport' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'Timer.publish(every: 0.8' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'refreshPeers(forceReload:' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'isCompactSingleLine: true' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'minimumScaleFactor(0.45)' iTorrent/Components/Cells/DetailCell/DetailCellView.swift
+          grep -q 'torrentFileMatch(for fileURL:' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'TextDocumentPreviewViewController.linkedText' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'ssa-fontsdir=' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
       - name: Syntax preflight
         working-directory: source
         run: |
@@ -260,6 +284,8 @@ jobs:
             iTorrent/Screens/Preferences/Root/PreferencesViewModel.swift \
             iTorrent/Services/TorrentService/TorrentService.swift \
             iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift \
+            iTorrent/Components/Cells/DetailCell/DetailCellViewModel.swift \
+            iTorrent/Components/Cells/DetailCell/DetailCellView.swift \
             iTorrent/Screens/TorrentList/TorrentListViewController.swift \
             Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift; do
             xcrun swiftc -frontend -parse "$FILE"
@@ -298,8 +324,8 @@ jobs:
 
           PLIST="$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "com.mxmall123.app"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.1.4"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "114"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "115"
           test -s "$APP/Fonts/NotoSansSC-VF.ttf"
           test -s "$APP/Fonts/OFL-NotoSansSC.txt"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIAppFonts:0' "$PLIST")" = "Fonts/NotoSansSC-VF.ttf"
@@ -355,39 +381,39 @@ jobs:
           codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --entitlements "$ENTITLEMENTS" --timestamp=none "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/BTMobile_V1.1.4_Signed_Entitlements.plist"
+          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/BTMobile_V1.1.5_Signed_Entitlements.plist"
           codesign -d --entitlements :- "$APP" > "$SIGNED_ENTITLEMENTS"
           ! grep -q 'application-groups' "$SIGNED_ENTITLEMENTS"
 
-          OUT="$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc"
+          OUT="$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc"
           mkdir -p "$OUT/Payload"
           cp -R "$APP" "$OUT/Payload/BTMobile.app"
           cd "$OUT"
-          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc.ipa" Payload
-          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc.ipa" | tee "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc_SHA256.txt"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc.ipa" | tee "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc_SHA256.txt"
 
-          PRIVATE_BUNDLE="$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle"
+          PRIVATE_BUNDLE="$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle"
           mkdir -p "$PRIVATE_BUNDLE"
-          cp "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc.ipa" "$PRIVATE_BUNDLE/"
-          cp "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc_SHA256.txt" "$PRIVATE_BUNDLE/"
+          cp "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc.ipa" "$PRIVATE_BUNDLE/"
+          cp "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc_SHA256.txt" "$PRIVATE_BUNDLE/"
           cp "$SIGNED_ENTITLEMENTS" "$PRIVATE_BUNDLE/"
-          tar -czf "$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle.tar.gz" -C "$PRIVATE_BUNDLE" .
+          tar -czf "$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle.tar.gz" -C "$PRIVATE_BUNDLE" .
           openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
             -pass env:ARTIFACT_PASSWORD \
-            -in "$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle.tar.gz" \
-            -out "$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle.tar.gz.enc"
-          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle.tar.gz.enc" > "$RUNNER_TEMP/BTMobile_V1.1.4_Encrypted_SHA256.txt"
-          rm -rf "$PRIVATE_BUNDLE" "$RUNNER_TEMP/BTMobile_V1.1.4_Private_Bundle.tar.gz"
-          rm -f "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc.ipa" "$RUNNER_TEMP/BTMobile_V1.1.4_AdHoc_SHA256.txt" "$SIGNED_ENTITLEMENTS"
+            -in "$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle.tar.gz" \
+            -out "$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle.tar.gz.enc"
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle.tar.gz.enc" > "$RUNNER_TEMP/BTMobile_V1.1.5_Encrypted_SHA256.txt"
+          rm -rf "$PRIVATE_BUNDLE" "$RUNNER_TEMP/BTMobile_V1.1.5_Private_Bundle.tar.gz"
+          rm -f "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc.ipa" "$RUNNER_TEMP/BTMobile_V1.1.5_AdHoc_SHA256.txt" "$SIGNED_ENTITLEMENTS"
 
       - name: Upload encrypted signed IPA bundle
         if: steps.xcodebuild.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: BTMobile_V1.1.4_AdHoc_IPA
+          name: BTMobile_V1.1.5_AdHoc_IPA
           path: |
-            ${{ runner.temp }}/BTMobile_V1.1.4_Private_Bundle.tar.gz.enc
-            ${{ runner.temp }}/BTMobile_V1.1.4_Encrypted_SHA256.txt
+            ${{ runner.temp }}/BTMobile_V1.1.5_Private_Bundle.tar.gz.enc
+            ${{ runner.temp }}/BTMobile_V1.1.5_Encrypted_SHA256.txt
           retention-days: 1
           if-no-files-found: error
 
@@ -395,7 +421,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BTMobile_V1.1.4_Build_Diagnostics
+          name: BTMobile_V1.1.5_Build_Diagnostics
           path: |
             ${{ runner.temp }}/xcodebuild.log
             ${{ runner.temp }}/xcodebuild.exit
