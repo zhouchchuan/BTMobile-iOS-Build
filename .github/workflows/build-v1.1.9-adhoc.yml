@@ -1,0 +1,491 @@
+name: Build BTMobile iOS V1.1.9 Ad Hoc
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/BTMobile_V1.1.9_Overlay.tar.gz'
+      - '.github/workflows/build-v1.1.9-adhoc.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btmobile-ios-v1.1.9-adhoc
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout CI repository
+        uses: actions/checkout@v4
+        with:
+          path: ci-repo
+          fetch-depth: 1
+
+      - name: Checkout latest verified public iTorrent base
+        uses: actions/checkout@v4
+        with:
+          repository: XITRIX/iTorrent
+          ref: e95af51ff84b45f4a5de075aa024a75ed2a19bdb
+          path: source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode 26.6
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.6"
+
+      - name: Validate signing secrets
+        env:
+          P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
+        run: |
+          set -e
+          test -n "$P12_BASE64"
+          test -n "$P12_PASSWORD"
+          test -n "$PROFILE_BASE64"
+          test -n "$ARTIFACT_PASSWORD"
+
+      - name: Install build dependency
+        run: brew install boost
+
+      - name: Reconstruct verified V0.1.6 Build19 baseline
+        run: |
+          set -e
+          test -f ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz
+          test -f ci-repo/ci/v016-files/archive_bridge_build18.c
+          test -f ci-repo/ci/v016-files/TorrentList_build18.patch
+          test -f ci-repo/ci/v016-build19/ArchiveExtractor.swift
+          test -f ci-repo/ci/v016-build19/Package.swift
+          for N in 00 01 02 03 04; do
+            test -f "ci-repo/ci/v016-files/TorrentList.patch.part$N"
+          done
+
+          tar -xzf ci-repo/ci/BTMobile_V0.1.4_CI_Overlay.tar.gz -C source
+          cp ci-repo/ci/v016-files/archive_bridge_build18.c source/Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          cp ci-repo/ci/v016-build19/ArchiveExtractor.swift source/Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          cp ci-repo/ci/v016-build19/Package.swift source/Submodules/SwiftVLC/Package.swift
+          cat ci-repo/ci/v016-files/TorrentList.patch.part* > "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+
+          test "$(shasum -a 256 "$RUNNER_TEMP/TorrentList_v014_to_v016.patch" | awk '{print $1}')" = "b69f7659a48954b8ac2edbfc0bc38d9d1e1e898318d22feb7c8e9c9311617541"
+          test "$(shasum -a 256 ci-repo/ci/v016-files/TorrentList_build18.patch | awk '{print $1}')" = "7d127195eb987a5cc7bc195a5c40cbfe15a9b5f238d0ff99fed6bd525ced5fdd"
+
+          cd source
+          patch -p1 < "$RUNNER_TEMP/TorrentList_v014_to_v016.patch"
+          patch -p1 < ../ci-repo/ci/v016-files/TorrentList_build18.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("iTorrent.xcodeproj/project.pbxproj")
+          source = path.read_text(encoding="utf-8")
+          if source.count("MARKETING_VERSION = 0.1.4;") != 3:
+              raise SystemExit("Unexpected V0.1.4 marketing version count")
+          if source.count("CURRENT_PROJECT_VERSION = 14;") != 3:
+              raise SystemExit("Unexpected V0.1.4 build version count")
+          source = source.replace("MARKETING_VERSION = 0.1.4;", "MARKETING_VERSION = 0.1.6;")
+          source = source.replace("CURRENT_PROJECT_VERSION = 14;", "CURRENT_PROJECT_VERSION = 19;")
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Apply verified V1.0.7 baseline
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.7_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "e2309d00d6e7812414062534cdcde90bd16c26f59fade3a2a63bb39087c4821f"
+          tar -xzf "$OVERLAY" -C source
+
+      - name: Apply BT Mobile V1.0.8 fixes
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.8_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "f85d87b4f150f031fdf0d058373dbc8301fbc667b8717f0d450aed207091ef1d"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.0.8;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 108;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'APPLICATION_ID = com.mxmall123.app' iTorrent/Core/Assets/iTorrent.xcconfig
+          grep -q 'isManualFullscreen' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'rawURLPattern' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'recoverAfterBackgroundSuspension' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'swiftvlc_archive_extract_volumes' Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          grep -q 'isZipVolume' Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift
+          grep -q 'progressPPM' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm
+          grep -q 'Atorrent' iTorrent/Services/Preferences/PreferencesStorage.swift
+          ! grep -q 'Embed Foundation Extensions' iTorrent.xcodeproj/project.pbxproj
+          ! grep -q 'group.itorrent.life-activity' iTorrent/Core/Assets/iTorrent.entitlements
+
+      - name: Apply BT Mobile V1.0.9 upstream background core
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.0.9_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "c39e3f05a073da1d47582849b7377849c491c191770f0482b05cb8e7d5e0cdce"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.0.9;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 109;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'btmobileV109BackgroundMigration' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'settings.agentName = "iTorrent/' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'return "-IT' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'await runBackgroundTask()' iTorrent/Services/BackgroundService/AudioBackgroundService.swift
+          grep -q 'Task.sleep(for: .seconds(10))' iTorrent/Services/BackgroundService/AudioBackgroundService.swift
+          ! grep -q 'Atorrent' iTorrent/Services/Preferences/PreferencesStorage.swift
+          ! grep -q 'recoverAfterBackgroundSuspension' iTorrent/Services/TorrentService/TorrentService.swift
+
+      - name: Apply BT Mobile V1.1.0 TXT links and progressive playback
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.0_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "f1ea152d1d4a7d32c4a29eb67b91557dc72ad98a884a61ca3fda489203022dc9"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.0;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 110;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'dataDetectorTypes = \[.link\]' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'primaryActionFor textItem: UITextItem' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'openWebLink' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'A-Za-z0-9._~:' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'prioritizeStreaming(fileIndex:progress:windowPieceCount:)' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.h
+          grep -q 'set_piece_deadline' Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm
+          grep -q 'prioritizeStreaming(playbackTime:' iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift
+          grep -q 'finishStreamingPlayback' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.1 session wake and Chinese subtitles
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.1_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "993ce9dc3bf6ddd135625e0e6783f92277b2849c31a5a763a4df9fda509dcbd6"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.1;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 111;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'markEnteringBackground' iTorrent/Core/SceneDelegate/SceneDelegate.swift
+          grep -q 'recoverAfterForeground' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'reopenNetworkSockets' Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.h
+          grep -q 'reopen_network_sockets' Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm
+          grep -q 'force_dht_announce' Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm
+          grep -q 'chineseSubtitleScore' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'subsdec-encoding=UTF-8' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'freetype-font=PingFang SC' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.2 UI and VLC track fixes
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.2_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "25abb59ed14276568f44273f55c460360db00ec5dfe8679ed1e41069e549a659"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.2;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 112;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'selectionNeedsLayout' iTorrent/Components/Views/TagsView.swift
+          grep -q 'let titles = \[%"common.all"\]' iTorrent/Screens/TorrentList/TorrentListViewModel.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'selectSubtitleTrack' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'isManualFullscreen' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'prioritizeStreaming(playbackTime:' iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift
+          ! grep -q 'subsdec-encoding=UTF-8' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          ! grep -q 'freetype-font=PingFang SC' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.3 Chinese subtitle font fix
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.3_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "9cccacd61bbe7670ae04e5a540080a2efac06ea1cbefe750c2e88dca551457df"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.3;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 113;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test -s iTorrent/Core/Assets/Fonts/NotoSansSC-VF.ttf
+          test -s iTorrent/Core/Assets/Fonts/OFL-NotoSansSC.txt
+          grep -q 'Fonts/NotoSansSC-VF.ttf' iTorrent/Core/Assets/Info.plist
+          grep -q 'ssa-fontsdir=' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'freetype-font=Noto Sans SC' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'Player(instance: VLCPlaybackConfiguration.instance)' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'isManualFullscreen' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'prioritizeStreaming(playbackTime:' iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift
+
+      - name: Apply BT Mobile V1.1.4 file-manager streaming and TXT links
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.4_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "f8ab6b0efb0708761d86cb1f74849bce49866f5d1ed0ad92b3509823aa42c829"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.4;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 114;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'torrentFileMatch(for fileURL:' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'file.downloaded >= file.size' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'setFilesPriority(.topPriority' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'torrentPair: torrentPair' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'showReadingMode' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'primaryActionFor textItem: UITextItem' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'TextDocumentPreviewViewController.linkedText' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'static func linkedText' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'rawURLPattern' iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'ssa-fontsdir=' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.5 seamless foreground and live Peer cards
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.5_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "514bd5d2a4174bb2a9cb11c9992ad4b5ed6c2015c1b64fb1e67d445c8dbfadb1"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.5;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 115;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'backgroundCheckpoint' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'recoverAfterForeground(force: true)' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'shouldPreserveSession' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'madeProgress || hasLiveTransport' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'Timer.publish(every: 0.8' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'refreshPeers(forceReload:' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'isCompactSingleLine: true' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'minimumScaleFactor(0.45)' iTorrent/Components/Cells/DetailCell/DetailCellView.swift
+          grep -q 'torrentFileMatch(for fileURL:' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'TextDocumentPreviewViewController.linkedText' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+          grep -q 'ssa-fontsdir=' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.6 UI branding only
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.6_Overlay.tar.gz"
+          test -f "$OVERLAY"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "07cef032b880763f9d1c10691f96e8910419eb7c05b4d593f7ef3c7662dac362"
+          tar -xzf "$OVERLAY" -C source
+
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.6;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 116;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'title = "BTmobile"' iTorrent/Screens/TorrentList/TorrentListViewModel.swift
+          grep -q '欢迎使用BTmobile' iTorrent/Core/Assets/Localizable.xcstrings
+          grep -q '<string>BTmobile</string>' iTorrent/Core/Assets/Info.plist
+          grep -q '"value" : "BTmobile"' iTorrent/Core/Assets/InfoPlist.xcstrings
+          grep -q 'BTmobile: v' iTorrent/Screens/Preferences/Root/PreferencesViewModel.swift
+
+          # The public BitTorrent client identity remains iTorrent as requested;
+          # this release changes visible BTmobile branding only.
+          grep -q 'settings.agentName = "iTorrent/' iTorrent/Services/Preferences/PreferencesStorage.swift
+          grep -q 'backgroundCheckpoint' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'Timer.publish(every: 0.8' iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift
+          grep -q 'torrentFileMatch(for fileURL:' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+          grep -q 'requestedSubtitleTrackID' iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift
+
+      - name: Apply BT Mobile V1.1.7 core startup and file icons
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.7_Overlay.tar.gz"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "b2f2dc652b4c0ce8555c030e9893629fc41ff9b4aa821824c99565de59a02ce3"
+          tar -xzf "$OVERLAY" -C source
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.7;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 117;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          grep -q 'func ensureCoreReadyForForeground' iTorrent/Services/TorrentService/TorrentService.swift
+          grep -q 'ensureCoreReadyForForeground()' iTorrent/Core/SceneDelegate/SceneDelegate.swift
+          grep -q 'fileIconView.tintColor = .systemOrange' iTorrent/Screens/TorrentList/TorrentListViewController.swift
+
+      - name: Apply V1.1.9 subscription overlay
+        run: |
+          set -e
+          OVERLAY="ci-repo/ci/BTMobile_V1.1.9_Overlay.tar.gz"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "e867a704ab1ce7524f762706a4b43ec39cf42b41371e771a5b0720869a5fce7c"
+          tar -xzf "$OVERLAY" -C source
+          cd source
+          test "$(grep -c 'MARKETING_VERSION = 1.1.9;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+          test "$(grep -c 'CURRENT_PROJECT_VERSION = 120;' iTorrent.xcodeproj/project.pbxproj)" = "3"
+
+      - name: Syntax preflight
+        working-directory: source
+        run: |
+          set -e
+          for FILE in \
+            iTorrent/Screens/TorrentFiles/TextDocumentPreviewViewController.swift \
+            iTorrent/Screens/TorrentFiles/TorrentFilesViewController.swift \
+            iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift \
+            iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift \
+            iTorrent/Services/BackgroundService/AudioBackgroundService.swift \
+            iTorrent/Services/BackgroundService/BackgroundService.swift \
+            iTorrent/Services/Preferences/PreferencesStorage.swift \
+            iTorrent/Core/SceneDelegate/SceneDelegate+Bindings.swift \
+            iTorrent/Core/SceneDelegate/SceneDelegate.swift \
+            iTorrent/Screens/Preferences/Root/PreferencesViewModel.swift \
+            iTorrent/Services/TorrentService/TorrentService.swift \
+            iTorrent/Screens/TorrentDetails/TorrentDetailsViewModel.swift \
+            iTorrent/Components/Cells/DetailCell/DetailCellViewModel.swift \
+            iTorrent/Components/Cells/DetailCell/DetailCellView.swift \
+            iTorrent/Screens/TorrentList/TorrentListViewModel.swift \
+            iTorrent/Screens/TorrentList/TorrentListViewController.swift \
+            Submodules/SwiftVLC/Sources/SwiftVLC/Archive/ArchiveExtractor.swift; do
+            xcrun swiftc -frontend -parse "$FILE"
+          done
+          xcrun swiftc -frontend -parse iTorrent/Services/TorrentService/BTSubscription.swift iTorrent/Services/TorrentService/BTSubscriptionNetwork.swift iTorrent/Services/TorrentService/BTSubscriptionViewController.swift
+          xcrun swiftc iTorrent/Services/TorrentService/BTSubscription.swift tests/subscription/main.swift -o "$RUNNER_TEMP/subscription-tests"
+          "$RUNNER_TEMP/subscription-tests"
+          xcrun clang -std=c11 -fsyntax-only -ISubmodules/SwiftVLC/Sources/CLibVLC/include Submodules/SwiftVLC/Sources/CLibVLC/archive_bridge.c
+          plutil -lint iTorrent/Core/Assets/Info.plist iTorrent/Core/Assets/iTorrent.entitlements
+          python3 -m json.tool iTorrent/Core/Assets/InfoPlist.xcstrings >/dev/null
+          python3 -m json.tool iTorrent/Core/Assets/Localizable.xcstrings >/dev/null
+
+      - name: Configure LibTorrent
+        working-directory: source
+        run: |
+          set -e
+          chmod +x ./Submodules/LibTorrent-Swift/make.sh
+          ./Submodules/LibTorrent-Swift/make.sh
+
+      - name: Build unsigned Release application
+        id: xcodebuild
+        continue-on-error: true
+        working-directory: source
+        run: python3 ../ci-repo/ci/build_v014.py
+
+      - name: Stop after Xcode failure
+        if: steps.xcodebuild.outcome == 'failure'
+        run: exit 1
+
+      - name: Validate, sign and package IPA
+        if: steps.xcodebuild.outcome == 'success'
+        env:
+          P12_BASE64: ${{ secrets.BTMOBILE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BTMOBILE_P12_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.BTMOBILE_PROFILE_BASE64 }}
+          ARTIFACT_PASSWORD: ${{ secrets.BTMOBILE_ARTIFACT_PASSWORD }}
+        run: |
+          set -e
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/iTorrent.app"
+          test -d "$APP"
+
+          PLIST="$APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "com.mxmall123.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.1.9"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "120"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST")" = "BTmobile"
+          test -s "$APP/Fonts/NotoSansSC-VF.ttf"
+          test -s "$APP/Fonts/OFL-NotoSansSC.txt"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIAppFonts:0' "$PLIST")" = "Fonts/NotoSansSC-VF.ttf"
+
+          CERTIFICATE="$RUNNER_TEMP/btmobile.p12"
+          PROFILE="$RUNNER_TEMP/btmobile.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/btmobile-profile.plist"
+          ENTITLEMENTS="$RUNNER_TEMP/btmobile-entitlements.plist"
+          KEYCHAIN="$RUNNER_TEMP/btmobile-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          cleanup() {
+            security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
+            rm -f "$CERTIFICATE" "$PROFILE" "$PROFILE_PLIST" "$ENTITLEMENTS"
+          }
+          trap cleanup EXIT
+
+          printf '%s' "$P12_BASE64" | /usr/bin/base64 -D > "$CERTIFICATE"
+          printf '%s' "$PROFILE_BASE64" | /usr/bin/base64 -D > "$PROFILE"
+          security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")
+          test "${PROFILE_APP_ID#*.}" = "com.mxmall123.app"
+          /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$PROFILE_PLIST" >/dev/null
+          if /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.security.application-groups' "$PROFILE_PLIST" >/dev/null 2>&1; then
+            echo "Unexpected App Group entitlement in provisioning profile"
+            exit 1
+          fi
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1 {print $2}')
+          test -n "$SIGNING_IDENTITY"
+
+          rm -rf "$APP/PlugIns" "$APP/_CodeSignature"
+          cp "$PROFILE" "$APP/embedded.mobileprovision"
+          /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$PROFILE_PLIST" > "$ENTITLEMENTS"
+
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' ITEM; do
+              codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --timestamp=none "$ITEM"
+            done
+            find "$APP/Frameworks" -depth -type d -name '*.framework' -print0 | while IFS= read -r -d '' ITEM; do
+              codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --timestamp=none "$ITEM"
+            done
+          fi
+
+          codesign --force --sign "$SIGNING_IDENTITY" --keychain "$KEYCHAIN" --entitlements "$ENTITLEMENTS" --timestamp=none "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          SIGNED_ENTITLEMENTS="$RUNNER_TEMP/BTMobile_V1.1.9_Signed_Entitlements.plist"
+          codesign -d --entitlements :- "$APP" > "$SIGNED_ENTITLEMENTS"
+          ! grep -q 'application-groups' "$SIGNED_ENTITLEMENTS"
+
+          OUT="$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc"
+          mkdir -p "$OUT/Payload"
+          cp -R "$APP" "$OUT/Payload/BTMobile.app"
+          cd "$OUT"
+          /usr/bin/zip -qry "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc.ipa" | tee "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc_SHA256.txt"
+
+          PRIVATE_BUNDLE="$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle"
+          mkdir -p "$PRIVATE_BUNDLE"
+          cp "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc.ipa" "$PRIVATE_BUNDLE/"
+          cp "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc_SHA256.txt" "$PRIVATE_BUNDLE/"
+          cp "$SIGNED_ENTITLEMENTS" "$PRIVATE_BUNDLE/"
+          tar -czf "$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle.tar.gz" -C "$PRIVATE_BUNDLE" .
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass env:ARTIFACT_PASSWORD \
+            -in "$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle.tar.gz" \
+            -out "$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle.tar.gz.enc"
+          shasum -a 256 "$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle.tar.gz.enc" > "$RUNNER_TEMP/BTMobile_V1.1.9_Encrypted_SHA256.txt"
+          rm -rf "$PRIVATE_BUNDLE" "$RUNNER_TEMP/BTMobile_V1.1.9_Private_Bundle.tar.gz"
+          rm -f "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc.ipa" "$RUNNER_TEMP/BTMobile_V1.1.9_AdHoc_SHA256.txt" "$SIGNED_ENTITLEMENTS"
+
+      - name: Upload encrypted signed IPA bundle
+        if: steps.xcodebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V1.1.9_AdHoc_IPA
+          path: |
+            ${{ runner.temp }}/BTMobile_V1.1.9_Private_Bundle.tar.gz.enc
+            ${{ runner.temp }}/BTMobile_V1.1.9_Encrypted_SHA256.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTMobile_V1.1.9_Build_Diagnostics
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/xcodebuild.exit
+            ${{ runner.temp }}/xcode-summary.txt
+          retention-days: 7
+          if-no-files-found: warn
+
