@@ -346,7 +346,7 @@ jobs:
         run: |
           set -e
           OVERLAY="ci-repo/ci/BTMobile_V1.2.2_Overlay.tar.gz"
-          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "c3ee08efc72d3cfdfc1c3b71f10f365eec5277cc7a3c9905c299a4796f0288b0"
+          test "$(shasum -a 256 "$OVERLAY" | awk '{print $1}')" = "279003b184178fedd4d05f2bff485fe8d02c98ff28ce76a24828eaf6633ea29c"
           tar -xzf "$OVERLAY" -C source
           cd source
           test "$(grep -c 'MARKETING_VERSION = 1.2.2;' iTorrent.xcodeproj/project.pbxproj)" = "3"
