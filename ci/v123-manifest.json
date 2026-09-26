@@ -1,0 +1,35 @@
+{
+  "version": "1.2.3",
+  "build": 124,
+  "baselineCommit": "cdd0b9ed8a90572a26635c9699d9432f5046ae1a",
+  "overlayHash": "8e6d1a482b07767fc0d08bfb90262f453915e1de038b92da6c405de0851438a7",
+  "files": [
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-1024.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-120.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-152.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-167.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-180.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-20.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-29.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-40.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-58.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-60.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-76.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-80.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/AppIcon-87.png",
+    "iTorrent/Core/Assets/Assets.xcassets/AppIcons/AppIcon.appiconset/Contents.json",
+    "iTorrent/Screens/VLCPlayer/BTStreamPlaybackFeedback.swift",
+    "iTorrent/Screens/VLCPlayer/VLCPlayerViewController.swift",
+    "iTorrent/Screens/VLCPlayer/VLCPlayerViewModel.swift",
+    "iTorrent.xcodeproj/project.pbxproj",
+    "Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm",
+    "tests/v123/FeedbackTests.swift",
+    "tests/v123/run.py"
+  ],
+  "subscriptionFiles": [
+    "iTorrent/Services/TorrentService/BTSubscription.swift",
+    "iTorrent/Services/TorrentService/BTSubscriptionNetwork.swift",
+    "iTorrent/Services/TorrentService/BTSubscriptionViewController.swift"
+  ],
+  "preservedFiles": 44
+}
