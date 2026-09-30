@@ -1,0 +1,26 @@
+{
+  "version": "1.2.4",
+  "build": 125,
+  "baselineCommit": "ed0e6e9d474fe04c9cf6ab5a2480709c2c778be5",
+  "overlayHash": "6fcf10bde129b51e1519072ad2dda5183bb4ae81137455681623d2135a824d7f",
+  "files": [
+    "iTorrent/Core/SceneDelegate/SceneDelegate.swift",
+    "iTorrent/Services/TorrentService/BTClientRuntimeProtocol.swift",
+    "iTorrent/Services/TorrentService/BTClientRuntimeService.swift",
+    "iTorrent/Services/TrackersListService/TrackersListService.swift",
+    "iTorrent.xcodeproj/project.pbxproj",
+    "tests/v124/main.swift",
+    "tests/v124/run.py"
+  ],
+  "protectedFiles": [
+    "iTorrent/Services/TorrentService/TorrentService.swift",
+    "iTorrent/Services/BackgroundService/BackgroundService.swift",
+    "iTorrent/Services/BackgroundService/AudioBackgroundService.swift",
+    "Submodules/LibTorrent-Swift/LibTorrent/Core/Session/Session.mm",
+    "Submodules/LibTorrent-Swift/LibTorrent/Core/TorrentHandle/TorrentHandle.mm",
+    "iTorrent/Services/TorrentService/BTSubscription.swift",
+    "iTorrent/Services/TorrentService/BTSubscriptionNetwork.swift",
+    "iTorrent/Services/TorrentService/BTSubscriptionViewController.swift"
+  ],
+  "preservedFiles": 62
+}
