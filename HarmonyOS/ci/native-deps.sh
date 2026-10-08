@@ -44,11 +44,12 @@ if [ ! -f "$D/prefix/lib/liblzma.a" ]; then
   cmake --build "$D/xz-build" -j3
   cmake --install "$D/xz-build"
 fi
-if [ ! -f "$D/prefix/lib/libarchive.a" ]; then
+if [ ! -f "$D/prefix/.archive-crypto-v2" ]; then
   fetch https://github.com/libarchive/libarchive/releases/download/v3.7.7/libarchive-3.7.7.tar.xz "$D/archive.tar.xz"
   unpack "$D/archive.tar.xz" "$D/archive"
-  cmake -S "$D/archive" -B "$D/archive-build" "${ARGS[@]}" -DCMAKE_PREFIX_PATH="$D/prefix" -DOPENSSL_ROOT_DIR="$D/prefix" -DOPENSSL_USE_STATIC_LIBS=ON -DENABLE_TEST=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_BZIP2=OFF -DENABLE_LZ4=OFF -DENABLE_ZSTD=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
+  cmake -S "$D/archive" -B "$D/archive-build" "${ARGS[@]}" -DCMAKE_PREFIX_PATH="$D/prefix" -DOPENSSL_ROOT_DIR="$D/prefix" -DOPENSSL_USE_STATIC_LIBS=ON -DOPENSSL_INCLUDE_DIR="$D/prefix/include" -DOPENSSL_SSL_LIBRARY="$D/prefix/lib/libssl.a" -DOPENSSL_CRYPTO_LIBRARY="$D/prefix/lib/libcrypto.a" -DZLIB_INCLUDE_DIR="$D/prefix/include" -DZLIB_LIBRARY="$D/prefix/lib/libz.a" -DLIBLZMA_INCLUDE_DIR="$D/prefix/include" -DLIBLZMA_LIBRARY="$D/prefix/lib/liblzma.a" -DENABLE_TEST=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_BZIP2=OFF -DENABLE_LZ4=OFF -DENABLE_ZSTD=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF
   cmake --build "$D/archive-build" -j3
   cmake --install "$D/archive-build"
+  touch "$D/prefix/.archive-crypto-v2"
 fi
 find "$D/prefix/lib" -name '*.a' -printf '%f\n'
