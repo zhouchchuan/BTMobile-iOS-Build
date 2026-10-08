@@ -23,14 +23,14 @@ int main(int argc,char** argv) {
     options.set_bool(lt::settings_pack::enable_dht,false);options.set_bool(lt::settings_pack::enable_lsd,false);
     options.set_bool(lt::settings_pack::enable_upnp,false);options.set_bool(lt::settings_pack::enable_natpmp,false);
     lt::session seeder(options);
-    lt::add_torrent_params params;params.ti=std::make_shared<lt::torrent_info>(torrent.string());params.save_path=(scratch/"seed").string();
+    auto params=lt::load_torrent_file(torrent.string());params.save_path=(scratch/"seed").string();
     params.flags=lt::torrent_flags::seed_mode;auto seed=seeder.add_torrent(params);
     for(int i=0;i<100 && seeder.listen_port()==0;++i)std::this_thread::sleep_for(100ms);
     assert(seeder.listen_port()!=0);
     Core core;
     auto init=core.call({{"op","init"},{"root",(scratch/"download").string()}});
     assert(init.at("version").get<std::string>().find("2.1") == 0);
-    std::string magnet=lt::make_magnet_uri(*params.ti)+"&x.pe=127.0.0.1:"+std::to_string(seeder.listen_port());
+    std::string magnet=lt::make_magnet_uri(params)+"&x.pe=127.0.0.1:"+std::to_string(seeder.listen_port());
     auto added=core.call({{"op","add"},{"uri",magnet}}); std::string hash=added.at("id");
     bool complete=false;
     for(int i=0;i<300;++i) {

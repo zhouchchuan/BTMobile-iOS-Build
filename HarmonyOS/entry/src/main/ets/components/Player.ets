@@ -17,7 +17,7 @@ export struct Player {
   @State controls: boolean = true;
   @State playing: boolean = false;
   @State waiting: boolean = true;
-  @State position: number = 0;
+  @State playbackPosition: number = 0;
   @State duration: number = 1;
   @State subtitle: string = '';
   @State errorText: string = '';
@@ -45,8 +45,8 @@ export struct Player {
         }
       });
       this.player.on('timeUpdate', (time: number) => {
-        if (time !== this.position) { this.waiting = false; this.lastProgress = Date.now(); }
-        this.position = time;
+        if (time !== this.playbackPosition) { this.waiting = false; this.lastProgress = Date.now(); }
+        this.playbackPosition = time;
       });
       this.player.on('bufferingUpdate', (type: number) => {
         if (type === media.BufferingInfoType.BUFFERING_START && Date.now() - this.lastProgress > 1200) this.waiting = true;
@@ -73,7 +73,7 @@ export struct Player {
       if (this.playing && !this.showTracks) animateTo({ duration: 220, curve: Curve.EaseOut }, () => { this.controls = false; });
     }, 2000);
   }
-  async rotate(): Promise<void> {
+  async toggleFullscreen(): Promise<void> {
     let w = await window.getLastWindow(getContext(this) as common.UIAbilityContext);
     this.fullscreen = !this.fullscreen;
     await w.setPreferredOrientation(this.fullscreen ? window.Orientation.AUTO_ROTATION_LANDSCAPE : window.Orientation.UNSPECIFIED);
@@ -124,19 +124,19 @@ export struct Player {
           }.padding(12)
           Blank()
           Row({ space: 24 }) {
-            Button('−10秒').onClick(() => { this.player?.seek(Math.max(0, this.position - 10000)); })
+            Button('−10秒').onClick(() => { this.player?.seek(Math.max(0, this.playbackPosition - 10000)); })
             Button(this.playing ? '暂停' : '播放').onClick(() => { if(this.playing) this.player?.pause(); else this.player?.play(); this.autoHide(); })
-            Button('+10秒').onClick(() => { this.player?.seek(Math.min(this.duration, this.position + 10000)); })
+            Button('+10秒').onClick(() => { this.player?.seek(Math.min(this.duration, this.playbackPosition + 10000)); })
           }.justifyContent(FlexAlign.Center).width('100%')
           Blank()
           Column() {
-            Slider({ value: this.position, min: 0, max: this.duration, step: 1000 }).onChange((value: number, mode: SliderChangeMode) => {
+            Slider({ value: this.playbackPosition, min: 0, max: this.duration, step: 1000 }).onChange((value: number, mode: SliderChangeMode) => {
               if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) { this.waiting = true; this.subtitle = ''; this.player?.seek(value, media.SeekMode.SEEK_CLOSEST); this.autoHide(); }
             })
             Row() {
-              Text(this.clock(this.position) + ' / ' + this.clock(this.duration)).fontColor(Color.White).layoutWeight(1)
+              Text(this.clock(this.playbackPosition) + ' / ' + this.clock(this.duration)).fontColor(Color.White).layoutWeight(1)
               Button('字幕 / 音轨').onClick(() => { this.showTracks = !this.showTracks; })
-              Button(this.fullscreen ? '竖屏' : '全屏').margin({ left: 8 }).onClick(() => { this.rotate(); })
+              Button(this.fullscreen ? '竖屏' : '全屏').margin({ left: 8 }).onClick(() => { this.toggleFullscreen(); })
             }
             if (this.showTracks) {
               Scroll() {

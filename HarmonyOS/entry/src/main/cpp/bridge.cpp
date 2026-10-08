@@ -5,6 +5,7 @@
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/torrent_info.hpp>
+#include <libtorrent/load_torrent.hpp>
 #include <libtorrent/torrent_status.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/read_resume_data.hpp>
@@ -244,7 +245,7 @@ public:
         if (op == "add") {
             lt::error_code ec; std::string uri = j.at("uri"); lt::add_torrent_params p;
             if (uri.rfind("magnet:?",0) == 0) p = lt::parse_magnet_uri(uri,ec);
-            else p.ti = std::make_shared<lt::torrent_info>(checked(uri).string(), ec);
+            else p = lt::load_torrent_file(checked(uri).string());
             if (ec) throw std::runtime_error("磁力链接或种子文件无效");
             p.save_path = root.string(); p.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
             p.trackers.insert(p.trackers.end(), trackers.begin(), trackers.end());
@@ -279,7 +280,7 @@ public:
         }
         if (op == "peers") {
             auto h=task(j);std::vector<lt::peer_info> peers;h.get_peer_info(peers);json list=json::array();
-            for(auto const& p:peers)list.push_back({{"address",p.ip.address().to_string()+":"+std::to_string(p.ip.port())},{"client",p.client},{"download",p.payload_down_speed},{"upload",p.payload_up_speed},{"progress",p.progress}});
+            for(auto const& p:peers)list.push_back({{"address",p.remote_endpoint().address().to_string()+":"+std::to_string(p.remote_endpoint().port())},{"client",p.client},{"download",p.payload_down_speed},{"upload",p.payload_up_speed},{"progress",p.progress}});
             return {{"items",list}};
         }
         if (op == "files") {
