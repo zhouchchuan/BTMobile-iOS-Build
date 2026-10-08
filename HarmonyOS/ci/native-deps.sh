@@ -14,6 +14,12 @@ if [ ! -f "$D/boost/boost/version.hpp" ]; then
   fetch https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.bz2 "$D/boost.tar.bz2"
   unpack "$D/boost.tar.bz2" "$D/boost"
 fi
+# OHOS has pthreads but no pthread cancellation API. Keep nanosleep and skip
+# only the cancellation-state wrapper, as Boost already does on Android.
+BOOST_SLEEP="$D/boost/boost/core/detail/sp_thread_sleep.hpp"
+if ! grep -q BTMOBILE_OHOS "$BOOST_SLEEP"; then
+  sed -i 's/!defined(__ANDROID__)/!defined(__ANDROID__) \&\& !defined(BTMOBILE_OHOS)/g' "$BOOST_SLEEP"
+fi
 fetch https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp "$D/headers/nlohmann/json.hpp"
 fetch https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.3/httplib.h "$D/headers/httplib.h"
 TC="$OHOS_NDK_HOME/build/cmake/ohos.toolchain.cmake"
@@ -53,3 +59,13 @@ if [ ! -f "$D/prefix/.archive-crypto-v2" ]; then
   touch "$D/prefix/.archive-crypto-v2"
 fi
 find "$D/prefix/lib" -name '*.a' -printf '%f\n'
+NOTICES="$ROOT/entry/src/main/resources/rawfile/licenses"
+mkdir -p "$NOTICES"
+for component in libtorrent boost openssl archive xz zlib; do
+  mkdir -p "$NOTICES/$component"
+  find "$D/$component" -maxdepth 1 -type f \( -iname 'COPYING*' -o -iname 'LICENSE*' \) -exec cp {} "$NOTICES/$component/" \;
+done
+cp "$D/zlib/zlib.h" "$NOTICES/zlib/zlib-license-header.txt"
+cp "$ROOT/LICENSE.txt" "$NOTICES/BTMobile-iTorrent-LICENSE.txt"
+fetch https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT "$NOTICES/nlohmann-json-LICENSE.txt"
+fetch https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.3/LICENSE "$NOTICES/cpp-httplib-LICENSE.txt"
