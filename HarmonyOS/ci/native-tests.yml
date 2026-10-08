@@ -1,0 +1,30 @@
+name: HarmonyOS native engine integration tests
+on:
+  push:
+    branches: [harmonyos-v0.1.0]
+    paths: ['HarmonyOS/entry/src/main/cpp/**', 'HarmonyOS/tests/**', '.github/workflows/harmony-native-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libboost-dev libssl-dev libarchive-dev
+          mkdir -p HarmonyOS/native-deps/headers/nlohmann
+          git clone https://github.com/arvidn/libtorrent.git HarmonyOS/native-deps/libtorrent
+          git -C HarmonyOS/native-deps/libtorrent checkout 75a08775ba32bdb62157f9e49a786ecdd9f0a0fa
+          git -C HarmonyOS/native-deps/libtorrent submodule update --init --recursive
+          curl -fL --retry 3 https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp -o HarmonyOS/native-deps/headers/nlohmann/json.hpp
+          curl -fL --retry 3 https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.3/httplib.h -o HarmonyOS/native-deps/headers/httplib.h
+      - name: Compile and exercise real libtorrent engine
+        run: |
+          cmake -S HarmonyOS/tests -B HarmonyOS/build-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build HarmonyOS/build-host -j3
+          TEST_DIR=$(mktemp -d)
+          timeout 120 HarmonyOS/build-host/core-test "$TEST_DIR"

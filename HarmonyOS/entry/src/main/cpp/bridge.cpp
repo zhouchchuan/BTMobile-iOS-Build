@@ -76,9 +76,9 @@ class Core {
         std::vector<lt::alert*> alerts; session->pop_alerts(&alerts);
         for (auto a : alerts) {
             if (auto s = lt::alert_cast<lt::save_resume_data_alert>(a)) {
+                if (!s->handle.is_valid() || !tasks.count(id(s->handle))) continue;
                 auto data = lt::write_resume_data_buf(s->params);
                 auto destination = root / ".state" / (id(s->handle) + ".resume");
-                if (!s->handle.is_valid()) continue;
                 std::ofstream f(destination.string() + ".tmp", std::ios::binary);
                 f.write(data.data(), data.size()); f.close();
                 if (f) fs::rename(destination.string() + ".tmp", destination);
@@ -265,6 +265,22 @@ public:
             auto h = task(j); h.unset_flags(lt::torrent_flags::auto_managed);
             if (op == "pause") h.pause(); else h.resume();
             h.save_resume_data(lt::torrent_handle::save_info_dict); return {{"ok",true}};
+        }
+        if (op == "remove") {
+            auto h=task(j); auto key=id(h);
+            std::lock_guard<std::mutex> l(mutex);
+            for(auto it=streams.begin();it!=streams.end();) {
+                if(it->second->handle==h){restorePriorities(it->second);it=streams.erase(it);}else ++it;
+            }
+            tasks.erase(key);session->remove_torrent(h); // Keep user payload files.
+            fs::remove(root/".state"/(key+".resume"));
+            fs::remove(root/".state"/(key+".resume.tmp"));
+            return {{"ok",true}};
+        }
+        if (op == "peers") {
+            auto h=task(j);std::vector<lt::peer_info> peers;h.get_peer_info(peers);json list=json::array();
+            for(auto const& p:peers)list.push_back({{"address",p.ip.address().to_string()+":"+std::to_string(p.ip.port())},{"client",p.client},{"download",p.payload_down_speed},{"upload",p.payload_up_speed},{"progress",p.progress}});
+            return {{"items",list}};
         }
         if (op == "files") {
             auto h = task(j); auto ti = h.torrent_file(); json list=json::array();

@@ -4,6 +4,8 @@ export interface TaskInfo { id: string; name: string; progress: number; download
 export interface TorrentFile { index: number; name: string; size: number; done: number }
 export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[] }
 export interface FileResult { items: TorrentFile[] }
+export interface PeerInfo { address: string; client: string; download: number; upload: number; progress: number }
+interface PeerResult { items: PeerInfo[] }
 export interface Request {
   op: string;
   root?: string;
@@ -20,6 +22,10 @@ export async function call(request: Request): Promise<NativeResult> {
 export async function files(id: string): Promise<TorrentFile[]> {
   let request: Request = { op: 'files', id: id };
   return (JSON.parse(await native.invoke(JSON.stringify(request))) as FileResult).items;
+}
+export async function peers(id: string): Promise<PeerInfo[]> {
+  let request: Request = { op: 'peers', id: id };
+  return (JSON.parse(await native.invoke(JSON.stringify(request))) as PeerResult).items;
 }
 export function bytes(size: number): string {
   if (size > 1073741824) return (size / 1073741824).toFixed(2) + ' GiB';

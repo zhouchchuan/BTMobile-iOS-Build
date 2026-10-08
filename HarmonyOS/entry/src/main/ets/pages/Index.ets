@@ -4,7 +4,7 @@ import picker from '@ohos.file.picker';
 import promptAction from '@ohos.promptAction';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
-import { call, files, bytes, TaskInfo, TorrentFile } from '../model/Native';
+import { call, files, peers, bytes, TaskInfo, TorrentFile, PeerInfo } from '../model/Native';
 import { Player } from '../components/Player';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number }
@@ -30,6 +30,8 @@ struct Index {
   @State current: string = '';
   @State entries: FileItem[] = [];
   @State taskFiles: TorrentFile[] = [];
+  @State peerRows: PeerInfo[] = [];
+  @State showPeers: boolean = false;
   @State selectedTask: string = '';
   @State playerSource: string = '';
   @State playerTitle: string = '';
@@ -62,6 +64,7 @@ struct Index {
       this.tasks = (await call({ op: 'tasks' })).items ?? [];
       await this.syncBackground();
       if (this.selectedTask) this.taskFiles = await files(this.selectedTask);
+      if (this.selectedTask && this.showPeers) this.peerRows = await peers(this.selectedTask);
       if (this.extracting) this.percent = (await call({ op: 'archiveProgress' })).percent ?? 0;
     } catch (e) { this.status = (e as Error).message; }
     finally { this.polling = false; }
@@ -218,6 +221,15 @@ struct Index {
       if (this.selectedTask) {
         Column() {
           Row() { Text('任务文件 · 点击视频边下边播').layoutWeight(1); Button('关闭').onClick(() => { this.selectedTask = ''; }) }.padding(16)
+          Row({ space: 12 }) {
+            Button(this.showPeers ? '收起 Peer' : '查看 Peer').onClick(async () => { this.showPeers = !this.showPeers; if(this.showPeers) this.peerRows = await peers(this.selectedTask); })
+            Button('移除任务').onClick(() => {
+              AlertDialog.show({ title: '移除任务', message: '停止此任务并移除记录，已经下载的文件仍然保留。', primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '移除', action: async () => { try { await call({ op: 'remove', id: this.selectedTask }); this.selectedTask = ''; await this.refresh(); } catch(e) { this.fail(e as Error); } } } });
+            })
+          }
+          if (this.showPeers) {
+            Scroll() { Column({ space: 6 }) { ForEach(this.peerRows, (p: PeerInfo) => { Text(p.address + ' · ' + p.client + ' · ↓' + bytes(p.download) + ' ↑' + bytes(p.upload)).fontSize(11).width('100%') }) }.padding(12) }.constraintSize({ maxHeight: 180 }).width('100%')
+          }
           List() { ForEach(this.taskFiles, (file: TorrentFile) => { ListItem() { Column({ space: 8 }) { Text(file.name).width('100%'); Text(bytes(file.done) + ' / ' + bytes(file.size)).fontSize(12).fontColor('#777777').width('100%') }.padding(16).onClick(() => { this.playTask(file); }) } }) }.layoutWeight(1)
         }.width('100%').height('100%').backgroundColor(Color.White)
       }
