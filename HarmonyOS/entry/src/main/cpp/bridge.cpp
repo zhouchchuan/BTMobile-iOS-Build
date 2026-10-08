@@ -1,4 +1,6 @@
+#ifndef BT_MOBILE_HOST_TEST
 #include <napi/native_api.h>
+#endif
 #include <libtorrent/session.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/magnet_uri.hpp>
@@ -105,7 +107,7 @@ class Core {
         // Never restart a manually paused torrent to satisfy a player read.
         if (s->handle.status().flags & lt::torrent_flags::paused) return complete;
         auto aheadOffset = std::min(files.file_size(ix) - 1, offset + 32 * 1024 * 1024);
-        auto ahead = files.map_file(ix, aheadOffset, 1).piece;
+        auto ahead = std::min(files.map_file(ix, aheadOffset, 1).piece, first + lt::piece_index_t::diff_type(127));
         for (auto it = s->priorities.begin(); it != s->priorities.end();) {
             if (it->first < first || it->first > ahead) {
                 s->handle.reset_piece_deadline(it->first);
@@ -203,8 +205,8 @@ public:
             if (session) return {{"ok",true},{"version",LIBTORRENT_VERSION}};
             root = fs::weakly_canonical(j.at("root").get<std::string>()); fs::create_directories(root / ".state");
             lt::settings_pack settings;
-            settings.set_str(lt::settings_pack::user_agent, "BTMobile-HarmonyOS/0.1.0");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-BH0100-");
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.0");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0100-");
             settings.set_bool(lt::settings_pack::enable_dht, true);
             settings.set_bool(lt::settings_pack::enable_lsd, true);
             settings.set_bool(lt::settings_pack::enable_upnp, true);
@@ -295,6 +297,45 @@ public:
             }
             return {{"id",""},{"complete",true}};
         }
+        if (op == "compress") {
+            int expected = -1;
+            if (!archiveProgress.compare_exchange_strong(expected, 0)) throw std::runtime_error("已有压缩或解压任务正在进行");
+            struct Reset { std::atomic<int>& p; ~Reset(){p=-1;} } reset{archiveProgress};
+            cancelArchive=false;
+            auto source=checked(j.at("path")), output=checked(j.at("output"));
+            if (fs::exists(output)) throw std::runtime_error("输出文件已存在");
+            if (source==root || fs::is_symlink(source)) throw std::runtime_error("不能压缩此路径");
+            std::vector<fs::path> inputs;
+            if(fs::is_directory(source)) {
+                for(auto const& item:fs::recursive_directory_iterator(source)) {
+                    if(fs::is_symlink(item)) throw std::runtime_error("为安全起见，不压缩符号链接");
+                    if(item.is_regular_file()) inputs.push_back(item.path());
+                }
+            } else inputs.push_back(source);
+            uint64_t total=0,done=0;for(auto const& p:inputs)total+=fs::file_size(p);
+            auto writer=archive_write_new();
+            struct Writer { archive* a; ~Writer(){archive_write_free(a);} } cleanup{writer};
+            archive_write_set_format_zip(writer);
+            if(archive_write_open_filename(writer,output.c_str())!=ARCHIVE_OK)throw std::runtime_error("无法创建 ZIP 文件");
+            for(auto const& p:inputs) {
+                auto entry=archive_entry_new();
+                std::string name=p.lexically_relative(source.parent_path()).generic_string();
+                archive_entry_set_pathname(entry,name.c_str());archive_entry_set_size(entry,fs::file_size(p));
+                archive_entry_set_filetype(entry,AE_IFREG);archive_entry_set_perm(entry,0600);
+                int status=archive_write_header(writer,entry);archive_entry_free(entry);
+                if(status!=ARCHIVE_OK)throw std::runtime_error("ZIP 文件头写入失败");
+                std::ifstream f(p,std::ios::binary);char buffer[65536];
+                while(f) {
+                    if(cancelArchive)throw std::runtime_error("压缩已取消，已保留部分文件");
+                    f.read(buffer,sizeof buffer);auto count=f.gcount();if(count<=0)break;
+                    if(archive_write_data(writer,buffer,count)!=count)throw std::runtime_error("写入失败，请检查剩余空间");
+                    done+=count;archiveProgress=total?int(done*100/total):0;
+                }
+                if(f.bad())throw std::runtime_error("读取源文件失败");
+            }
+            if(archive_write_close(writer)!=ARCHIVE_OK)throw std::runtime_error("ZIP 文件保存失败");
+            return {{"ok",true}};
+        }
         if (op == "extract") return extract(j);
         if (op == "archiveProgress") return {{"percent",archiveProgress.load()}};
         if (op == "cancelArchive") { cancelArchive=true; return {{"ok",true}}; }
@@ -302,6 +343,7 @@ public:
     }
 };
 
+#ifndef BT_MOBILE_HOST_TEST
 static Core core;
 struct Work { napi_async_work work; napi_deferred deferred; std::string request,result,error; };
 static napi_value Invoke(napi_env env, napi_callback_info info) {
@@ -326,3 +368,4 @@ static napi_value Init(napi_env env,napi_value exports) {
 }
 static napi_module module={1,0,nullptr,Init,"btmobile",nullptr,{0}};
 extern "C" __attribute__((constructor)) void RegisterBTMobile(){napi_module_register(&module);}
+#endif

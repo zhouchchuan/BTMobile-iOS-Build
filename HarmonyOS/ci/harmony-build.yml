@@ -46,6 +46,11 @@ jobs:
           find "$TOOL/sdk" -name oh-uni-package.json -maxdepth 6 -exec cat {} \;
           sudo apt-get update -qq
           sudo apt-get install -y ninja-build libgl1
+      - name: Save SDK cache before dependency compilation
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/harmony-cli
+          key: harmony-cli-linux-5.0.3.906-v1
       - name: Restore native dependencies
         uses: actions/cache@v4
         with:
@@ -53,6 +58,11 @@ jobs:
           key: harmony-native-api12-arm64-75a08775-v1
       - name: Compile real native dependencies
         run: bash HarmonyOS/ci/native-deps.sh
+      - name: Save native dependency cache before application compilation
+        uses: actions/cache/save@v4
+        with:
+          path: HarmonyOS/native-deps
+          key: harmony-native-api12-arm64-75a08775-v1
       - name: Build native HAP (unsigned)
         working-directory: HarmonyOS
         run: |
@@ -61,6 +71,14 @@ jobs:
           ohpm config set registry https://ohpm.openharmony.cn/ohpm/
           ohpm install --all
           hvigorw --mode module -p product=default -p module=entry@default -p buildMode=debug assembleHap --no-daemon --stacktrace
+      - name: Real native engine loopback integration test
+        working-directory: HarmonyOS
+        run: |
+          sudo apt-get install -y libarchive-dev libssl-dev
+          cmake -S tests -B build-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host -j3
+          TEST_DIR=$(mktemp -d)
+          timeout 120 build-host/core-test "$TEST_DIR"
       - name: Verify compiled package
         run: |
           set -euo pipefail

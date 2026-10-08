@@ -2,6 +2,8 @@ import common from '@ohos.app.ability.common';
 import fs from '@ohos.file.fs';
 import picker from '@ohos.file.picker';
 import promptAction from '@ohos.promptAction';
+import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
+import wantAgent from '@ohos.app.ability.wantAgent';
 import { call, files, bytes, TaskInfo, TorrentFile } from '../model/Native';
 import { Player } from '../components/Player';
 
@@ -14,6 +16,11 @@ struct Index {
   private root: string = '';
   private poll: number = -1;
   private polling: boolean = false;
+  private backgroundActive: boolean = false;
+  @State allowBackground: boolean = false;
+  @State actionPath: string = '';
+  @State newName: string = '';
+  @State imagePath: string = '';
   @State ready: boolean = false;
   @State tab: number = 0;
   @State version: string = '';
@@ -53,12 +60,25 @@ struct Index {
     this.polling = true;
     try {
       this.tasks = (await call({ op: 'tasks' })).items ?? [];
+      await this.syncBackground();
       if (this.selectedTask) this.taskFiles = await files(this.selectedTask);
       if (this.extracting) this.percent = (await call({ op: 'archiveProgress' })).percent ?? 0;
     } catch (e) { this.status = (e as Error).message; }
     finally { this.polling = false; }
   }
   fail(e: Error): void { this.status = e.message; promptAction.showToast({ message: e.message, duration: 3000 }); }
+  async syncBackground(): Promise<void> {
+    const active = this.allowBackground && this.tasks.some((task: TaskInfo) => !task.paused);
+    if (active === this.backgroundActive) return;
+    const context = getContext(this) as common.UIAbilityContext;
+    try {
+      if (active) {
+        const agent = await wantAgent.getWantAgent({ wants: [{ bundleName: 'com.mxmall123.btmobile.harmony', abilityName: 'EntryAbility' }], operationType: wantAgent.OperationType.START_ABILITY, requestCode: 1, wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG] });
+        await backgroundTaskManager.startBackgroundRunning(context, backgroundTaskManager.BackgroundMode.DATA_TRANSFER, agent);
+      } else await backgroundTaskManager.stopBackgroundRunning(context);
+      this.backgroundActive = active;
+    } catch(e) { this.allowBackground = false; this.fail(new Error('系统未批准后台传输：' + (e as Error).message)); }
+  }
   async add(): Promise<void> {
     if (!this.magnet.trim() || !this.ready) return;
     try { await call({ op: 'add', uri: this.magnet.trim() }); this.magnet = ''; this.status = ''; await this.refresh(); }
@@ -107,6 +127,8 @@ struct Index {
       else if (['txt','log','md','srt','ass','json','csv'].includes(extension)) {
         if (item.size > 4 * 1024 * 1024) throw new Error('此文本超过 4 MiB，请使用外部编辑器');
         this.textPath = item.path; this.text = fs.readTextSync(this.root + '/' + item.path); this.editing = false; this.splitText();
+      } else if (['png','jpg','jpeg','webp','gif'].includes(extension)) {
+        this.imagePath = this.root + '/' + item.path;
       } else if (['zip','7z','rar','tar','gz','xz','bz2','001'].includes(extension)) {
         this.archivePath = item.path; this.password = '';
       } else if (['mp4','mkv','avi','mov','webm','m4v','mp3','flac','m4a','aac','ogg'].includes(extension)) {
@@ -147,6 +169,7 @@ struct Index {
       Column() {
         Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.0').fontSize(13).fontColor('#888888') }.padding(20)
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
+        if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
         if (this.tab === 0) {
           Row({ space: 8 }) { TextInput({ placeholder: '粘贴磁力链接', text: this.magnet }).onChange((v: string) => { this.magnet = v; }).layoutWeight(1); Button('添加').enabled(this.ready).backgroundColor('#F39A56').onClick(() => { this.add(); }) }.padding(16)
           List({ space: 12 }) {
@@ -169,7 +192,7 @@ struct Index {
           Row() { Button('上一级').enabled(this.current.length > 0).onClick(() => { this.current = this.current.split('/').slice(0,-1).join('/'); this.list(); }); Text(this.current || '下载目录').fontSize(14).layoutWeight(1).padding(10); Button('导入').onClick(() => { this.importFile(); }); Button('刷新').onClick(() => { this.list(); }) }.padding(12)
           List() {
             ForEach(this.entries, (item: FileItem) => {
-              ListItem() { Row({ space: 12 }) { Text(this.icon(item)).fontSize(28); Column({ space: 5 }) { Text(item.name).fontSize(16).width('100%'); Text(item.directory ? '文件夹' : bytes(item.size)).fontSize(12).fontColor('#888888').width('100%') }.layoutWeight(1) }.padding(16).onClick(() => { this.open(item); }) }
+              ListItem() { Row({ space: 12 }) { Text(this.icon(item)).fontSize(28); Column({ space: 5 }) { Text(item.name).fontSize(16).width('100%'); Text(item.directory ? '文件夹' : bytes(item.size)).fontSize(12).fontColor('#888888').width('100%') }.layoutWeight(1).onClick(() => { this.open(item); }); Button('⋯').onClick(() => { this.actionPath = item.path; this.newName = item.name; }) }.padding(16) }
             }, (item: FileItem) => item.path)
           }.layoutWeight(1)
         } else {
@@ -177,7 +200,10 @@ struct Index {
             Column({ space: 16 }) {
               Text('原生下载核心').fontSize(20).fontWeight(FontWeight.Bold)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('V0.1.0 开发验证版\n当前包未签名，需调试 Profile 与真机 UDID 后安装。后台连续任务、系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
+              Text('Peer 客户端标志：Htorrent 0.1.0').fontSize(14)
+              Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.allowBackground = value; this.syncBackground(); }) }
+              Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
+              Text('V0.1.0 开发验证版\n当前包未签名，需调试 Profile 与真机 UDID 后安装。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
             }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
@@ -224,6 +250,31 @@ struct Index {
           if (this.extracting) { Progress({ value: Math.max(0,this.percent), total: 100 }); Text('解压中 ' + Math.max(0,this.percent).toString() + '%') }
           Row({ space: 16 }) { Button('取消').onClick(() => { if(this.extracting) call({ op: 'cancelArchive' }); else this.archivePath = ''; }); Button('解压').enabled(!this.extracting).onClick(() => { this.extract(); }) }
         }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
+      }
+      if (this.actionPath) {
+        Column({ space: 16 }) {
+          Text('文件操作').fontSize(20)
+          TextInput({ text: this.newName }).onChange((v: string) => { this.newName = v; })
+          Button('重命名').onClick(() => {
+            try {
+              if (!this.newName.trim() || this.newName.includes('/') || this.newName.includes('\\') || this.newName === '.' || this.newName === '..') throw new Error('文件名无效');
+              const dir = this.actionPath.split('/').slice(0,-1).join('/');
+              const output = this.root + '/' + dir + '/' + this.newName;
+              if(fs.accessSync(output)) throw new Error('目标文件已存在');
+              fs.renameSync(this.root + '/' + this.actionPath, output); this.actionPath = ''; this.list();
+            } catch(e) { this.fail(e as Error); }
+          })
+          Button('压缩为 ZIP').onClick(async () => {
+            const input = this.actionPath; this.actionPath = ''; this.extracting = true;
+            try { await call({ op: 'compress', path: input, output: input + '-' + Date.now().toString() + '.zip' }); this.list(); promptAction.showToast({ message: '压缩完成' }); }
+            catch(e) { this.fail(e as Error); } finally { this.extracting = false; }
+          })
+          Text('正在下载或做种的文件请勿重命名，以免任务找不到文件。').fontSize(12).fontColor('#BB4B18')
+          Button('取消').onClick(() => { this.actionPath = ''; })
+        }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24)
+      }
+      if (this.imagePath) {
+        Column() { Button('关闭图片').onClick(() => { this.imagePath = ''; }); Image('file://' + this.imagePath).objectFit(ImageFit.Contain).layoutWeight(1).width('100%') }.width('100%').height('100%').backgroundColor(Color.Black)
       }
       if (this.playerSource) {
         Player({ source: this.playerSource, title: this.playerTitle, onClose: () => { this.playerSource = ''; call({ op: 'stopStream' }); } })
