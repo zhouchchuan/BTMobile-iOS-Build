@@ -3,6 +3,7 @@
 #include <libtorrent/create_torrent.hpp>
 #include <libtorrent/bencode.hpp>
 #include <cassert>
+#include <iostream>
 
 // A locally generated payload and loopback-only swarm; no third-party media.
 int main(int argc,char** argv) {
@@ -11,8 +12,8 @@ int main(int argc,char** argv) {
     std::string payload(1024*1024,'x');
     for(size_t i=0;i<payload.size();++i)payload[i]=char((i*37+17)%251);
     {std::ofstream f(scratch/"seed"/"fixture.bin",std::ios::binary);f.write(payload.data(),payload.size());}
-    lt::file_storage storage;storage.add_file("fixture.bin",payload.size());
-    lt::create_torrent creator(storage,16384,lt::create_torrent::v1_only);
+    lt::create_file_entry fixture("fixture.bin",payload.size());
+    lt::create_torrent creator(std::vector<lt::create_file_entry>{fixture},16384,lt::create_torrent::v1_only);
     lt::set_piece_hashes(creator,(scratch/"seed").string());
     auto encoded=creator.generate_buf();
     fs::path torrent=scratch/"download"/"fixture.torrent";

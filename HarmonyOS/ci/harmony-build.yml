@@ -32,7 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d /opt/harmony-cli/command-line-tools ]; then
-            curl -fL --retry 4 https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip -o /tmp/harmony.zip
+            sudo apt-get update -qq
+            sudo apt-get install -y aria2
+            aria2c --max-connection-per-server=4 --split=4 --max-tries=5 --retry-wait=5 --dir=/tmp --out=harmony.zip https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip
             echo 'c6fe61299e1b05e4023e643a319ee74c3eb369af7edecd5c3f1795b16f9db6af  /tmp/harmony.zip' | sha256sum -c -
             sudo mkdir -p /opt/harmony-cli
             sudo chown -R "$USER" /opt/harmony-cli
@@ -96,6 +98,7 @@ jobs:
           name: BTMobile-HarmonyOS-V0.1.0
           path: |
             HarmonyOS/artifacts/
+            HarmonyOS/entry/build/default/outputs/default/*.hap
             HarmonyOS/build-profile.json5
             HarmonyOS/.hvigor/report/
           if-no-files-found: warn
