@@ -1,0 +1,13 @@
+.hvigor/
+oh_modules/
+**/build/
+**/.cxx/
+native-deps/
+local.properties
+*.p12
+*.p7b
+*.cer
+*.pem
+*.key
+*.csr
+signing-config.json

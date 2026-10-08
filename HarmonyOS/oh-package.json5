@@ -1,0 +1,8 @@
+{
+  "name": "btmobile-harmonyos",
+  "version": "0.1.0",
+  "description": "BTMobile HarmonyOS native port",
+  "modelVersion": "5.0.0",
+  "dependencies": {},
+  "devDependencies": {}
+}

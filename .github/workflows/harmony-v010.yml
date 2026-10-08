@@ -1,0 +1,84 @@
+name: BTMobile HarmonyOS V0.1.0
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonyos-v0.1.0]
+    paths: ['HarmonyOS/**', '.github/workflows/harmony-v010.yml']
+permissions:
+  contents: read
+concurrency:
+  group: harmony-v010
+  cancel-in-progress: false
+jobs:
+  hap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Range and extraction safety tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra HarmonyOS/tests/range_test.cpp -o /tmp/range-test
+          /tmp/range-test
+      - name: Restore official SDK cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/harmony-cli
+          key: harmony-cli-linux-5.0.3.906-v1
+      - name: Install official HarmonyOS toolchain
+        run: |
+          set -euo pipefail
+          if [ ! -d /opt/harmony-cli/command-line-tools ]; then
+            curl -fL --retry 4 https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip -o /tmp/harmony.zip
+            echo 'c6fe61299e1b05e4023e643a319ee74c3eb369af7edecd5c3f1795b16f9db6af  /tmp/harmony.zip' | sha256sum -c -
+            sudo mkdir -p /opt/harmony-cli
+            sudo chown -R "$USER" /opt/harmony-cli
+            unzip -q /tmp/harmony.zip -d /opt/harmony-cli
+          fi
+          TOOL=/opt/harmony-cli/command-line-tools
+          echo "DEVECO_SDK_HOME=$TOOL/sdk" >> "$GITHUB_ENV"
+          echo "OHOS_NDK_HOME=$TOOL/sdk/default/openharmony/native" >> "$GITHUB_ENV"
+          echo "$TOOL/bin" >> "$GITHUB_PATH"
+          echo "$TOOL/tool/node/bin" >> "$GITHUB_PATH"
+          find "$TOOL/sdk" -name oh-uni-package.json -maxdepth 6 -exec cat {} \;
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build libgl1
+      - name: Restore native dependencies
+        uses: actions/cache@v4
+        with:
+          path: HarmonyOS/native-deps
+          key: harmony-native-api12-arm64-75a08775-v1
+      - name: Compile real native dependencies
+        run: bash HarmonyOS/ci/native-deps.sh
+      - name: Build native HAP (unsigned)
+        working-directory: HarmonyOS
+        run: |
+          set -euo pipefail
+          npm config set @ohos:registry https://repo.harmonyos.com/npm/
+          ohpm config set registry https://ohpm.openharmony.cn/ohpm/
+          ohpm install --all
+          hvigorw --mode module -p product=default -p module=entry@default -p buildMode=debug assembleHap --no-daemon --stacktrace
+      - name: Verify compiled package
+        run: |
+          set -euo pipefail
+          mkdir -p HarmonyOS/artifacts
+          HAP=$(find HarmonyOS/entry/build -name '*unsigned.hap' -print -quit)
+          test -n "$HAP"
+          cp "$HAP" HarmonyOS/artifacts/BTMobile_HarmonyOS_V0.1.0_Unsigned.hap
+          unzip -l "$HAP" | tee HarmonyOS/artifacts/package-contents.txt
+          unzip -l "$HAP" | grep 'ets/modules.abc'
+          unzip -l "$HAP" | grep 'libbtmobile.so'
+          sha256sum HarmonyOS/artifacts/*.hap | tee HarmonyOS/artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BTMobile-HarmonyOS-V0.1.0
+          path: |
+            HarmonyOS/artifacts/
+            HarmonyOS/build-profile.json5
+            HarmonyOS/.hvigor/report/
+          if-no-files-found: warn
+          retention-days: 14
