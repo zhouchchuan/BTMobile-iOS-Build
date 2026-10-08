@@ -14,6 +14,7 @@ export struct Player {
   private timer: number = -1;
   private subtitleTimer: number = -1;
   private lastProgress: number = 0;
+  private disposed: boolean = false;
   @State controls: boolean = true;
   @State playing: boolean = false;
   @State waiting: boolean = true;
@@ -27,15 +28,18 @@ export struct Player {
 
   async start(): Promise<void> {
     try {
-      this.player = await media.createAVPlayer();
+      const created = await media.createAVPlayer();
+      if (this.disposed) { await created.release(); return; }
+      this.player = created;
       this.player.on('stateChange', async (state: string) => {
-        if (!this.player) return;
+        if (!this.player || this.disposed) return;
+        try {
         if (state === 'initialized') {
           this.player.surfaceId = this.surface.getXComponentSurfaceId();
           await this.player.prepare();
         } else if (state === 'prepared') {
           this.duration = Math.max(1, this.player.duration);
-          this.tracks = await this.player.getTrackDescription();
+          this.tracks = (await this.player.getTrackDescription()).filter((track: media.MediaDescription) => Number(track['track_type']) !== media.MediaType.MEDIA_TYPE_VID);
           await this.player.play();
         } else if (state === 'playing') {
           this.playing = true;
@@ -43,6 +47,7 @@ export struct Player {
         } else if (state === 'paused' || state === 'completed') {
           this.playing = false; this.waiting = false; this.controls = true;
         }
+        } catch(e) { if (!this.disposed) { this.errorText = (e as Error).message; this.waiting = false; } }
       });
       this.player.on('timeUpdate', (time: number) => {
         if (time !== this.playbackPosition) { this.waiting = false; this.lastProgress = Date.now(); }
@@ -82,19 +87,26 @@ export struct Player {
     this.autoHide();
   }
   async close(): Promise<void> {
+    this.disposed = true;
     clearTimeout(this.timer); clearTimeout(this.subtitleTimer);
-    if (this.player) { await this.player.release(); this.player = undefined; }
-    if (this.localFile) { fs.closeSync(this.localFile); this.localFile = undefined; }
-    let w = await window.getLastWindow(getContext(this) as common.UIAbilityContext);
-    await w.setPreferredOrientation(window.Orientation.UNSPECIFIED);
-    await w.setWindowLayoutFullScreen(false);
-    await w.setWindowSystemBarEnable(['status', 'navigation']);
-    this.onClose();
+    try {
+      await this.releasePlayer();
+      let w = await window.getLastWindow(getContext(this) as common.UIAbilityContext);
+      await w.setPreferredOrientation(window.Orientation.UNSPECIFIED);
+      await w.setWindowLayoutFullScreen(false);
+      await w.setWindowSystemBarEnable(['status', 'navigation']);
+    } finally { this.onClose(); }
+  }
+  async releasePlayer(): Promise<void> {
+    const player = this.player; this.player = undefined;
+    const file = this.localFile; this.localFile = undefined;
+    try { if (player) await player.release(); }
+    finally { if (file) fs.closeSync(file); }
   }
   aboutToDisappear(): void {
+    this.disposed = true;
     clearTimeout(this.timer); clearTimeout(this.subtitleTimer);
-    this.player?.release();
-    if (this.localFile) fs.closeSync(this.localFile);
+    this.releasePlayer().catch(() => {});
   }
   clock(ms: number): string {
     let s = Math.floor(ms / 1000);
@@ -143,7 +155,7 @@ export struct Player {
                 Column() {
                   ForEach(this.tracks, (track: media.MediaDescription) => {
                     Button('轨道 ' + String(track['track_index']) + ' · ' + String(track['track_type']) + ' · ' + String(track['language'] ?? track['codec_mime'] ?? ''))
-                      .margin(4).onClick(() => { this.player?.selectTrack(Number(track['track_index'])); this.showTracks = false; this.autoHide(); })
+                      .margin(4).onClick(() => { this.player?.selectTrack(Number(track['track_index'])).catch((e: Error) => { this.errorText = '切换轨道失败：' + e.message; }); this.showTracks = false; this.autoHide(); })
                   })
                 }
               }.constraintSize({ maxHeight: 180 })
@@ -154,3 +166,4 @@ export struct Player {
     }.width('100%').height('100%').backgroundColor(Color.Black)
   }
 }
+
