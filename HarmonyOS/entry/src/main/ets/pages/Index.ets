@@ -250,8 +250,7 @@ struct Index {
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '删除任务和数据', action: () => { this.removeTask(true); } } });
   }
-  confirmDeleteFile(): void {
-    const path = this.actionPath;
+  confirmDeleteFile(path: string = this.actionPath): void {
     AlertDialog.show({ title: '删除文件或文件夹？', message: path + '\n文件夹中的内容也会删除，且无法撤销。仍属于下载任务的文件，请从任务管理中删除。',
       primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '删除', action: async () => {
         try { await call({ op: 'deleteFile', path: path }); this.actionPath = ''; this.list(); promptAction.showToast({ message: '已删除' }); }
@@ -261,6 +260,13 @@ struct Index {
   @Builder
   swipeRemove(id: string) {
     Button('移除').backgroundColor('#D83B35').margin(8).onClick(() => { this.removeTaskId = id; })
+  }
+  @Builder
+  swipeFile(path: string, name: string) {
+    Row({ space: 6 }) {
+      Button('重命名').backgroundColor('#DB863F').onClick(() => { this.actionPath = path; this.newName = name; })
+      Button('删除').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteFile(path); })
+    }.padding(8)
   }
   icon(item: FileItem): string {
     if (item.directory) return '📁';
@@ -290,11 +296,20 @@ struct Index {
           }.layoutWeight(1).padding({ left: 16, right: 16 })
         } else if (this.tab === 1) {
           Row() { Button('上一级').enabled(this.current.length > 0).onClick(() => { this.current = this.current.split('/').slice(0,-1).join('/'); this.list(); }); Text(this.current || '下载目录').fontSize(14).layoutWeight(1).padding(10); Button('导入').onClick(() => { this.importFile(); }); Button('刷新').onClick(() => { this.list(); }) }.padding(12)
-          List() {
+          List({ space: 12 }) {
             ForEach(this.entries, (item: FileItem) => {
-              ListItem() { Row({ space: 12 }) { Text(this.icon(item)).fontSize(28); Column({ space: 5 }) { Text(item.name).fontSize(16).width('100%'); Text(item.directory ? '文件夹' : bytes(item.size)).fontSize(12).fontColor('#888888').width('100%') }.layoutWeight(1).onClick(() => { this.open(item); }); Button('⋯').onClick(() => { this.actionPath = item.path; this.newName = item.name; }) }.padding(16) }
-            }, (item: FileItem) => item.path)
-          }.layoutWeight(1)
+              ListItem() {
+                Row({ space: 12 }) {
+                  Text(this.icon(item)).fontSize(28).onClick(() => { this.open(item); })
+                  Column({ space: 5 }) {
+                    Text(item.name).fontSize(16).width('100%').maxLines(3)
+                    Text(item.directory ? '文件夹' : bytes(item.size)).fontSize(12).fontColor('#888888').width('100%')
+                  }.layoutWeight(1).onClick(() => { this.open(item); })
+                  Button('⋯').onClick(() => { this.actionPath = item.path; this.newName = item.name; })
+                }.padding(16).width('100%').borderRadius(20).backgroundColor(Color.White)
+              }.swipeAction({ end: this.swipeFile.bind(this, item.path, item.name) })
+            }, (item: FileItem) => item.path + ':' + item.size.toString())
+          }.layoutWeight(1).padding({ left: 16, right: 16 })
         } else {
           Scroll() {
             Column({ space: 16 }) {

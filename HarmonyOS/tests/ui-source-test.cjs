@@ -29,6 +29,8 @@ assert.equal(row,identity); assert.equal(row.progress,0.47); assert.equal(row.do
 const index = fs.readFileSync(path.join(root,'pages/Index.ets'),'utf8');
 assert(index.includes('row.update(value)'));
 assert(index.includes('.swipeAction({ end: this.swipeRemove.bind(this, task.id) })'));
+assert(index.includes('.swipeAction({ end: this.swipeFile.bind(this, item.path, item.name) })'));
+assert(index.includes('this.confirmDeleteFile(path)'));
 assert(index.includes("deleteData: deleteData"));
 assert(index.includes('finally { this.extracting = false; }'));
 assert(!index.includes('await this.syncBackground()'));
