@@ -5,6 +5,8 @@ import { SettingNumber, SettingSwitch } from './SettingField';
 export struct SettingsPanel {
   onSaved: () => void = () => {};
   onSync: () => Promise<string> = async () => '';
+  onAuthorizeNotifications: () => Promise<boolean> = async () => false;
+  @Prop notificationPermission: boolean = false;
   @Prop @Watch('refreshDefaults') trackerRevision: number = 0;
   @Prop runtimeMessage: string = '';
   @State loaded: boolean = false;
@@ -23,6 +25,9 @@ export struct SettingsPanel {
   @State natPmp: boolean = true;
   @State upnp: boolean = true;
   @State utp: boolean = true;
+  @State allowWifi: boolean = true;
+  @State allowCellular: boolean = true;
+  @State completionNotifications: boolean = true;
   @State autoTrackers: boolean = true;
   @State defaults: string = '';
   @State custom: string = '';
@@ -42,6 +47,8 @@ export struct SettingsPanel {
       this.seedEnabled = settings.seedEnabled ?? true;
       this.dht = settings.dht ?? true; this.lsd = settings.lsd ?? true; this.natPmp = settings.natPmp ?? true;
       this.upnp = settings.upnp ?? true; this.utp = settings.utp ?? true;
+      this.allowWifi = settings.allowWifi ?? true; this.allowCellular = settings.allowCellular ?? true;
+      this.completionNotifications = settings.completionNotifications ?? true;
       this.autoTrackers = settings.autoAddTrackers ?? true;
       this.defaults = (result.defaultTrackers ?? []).join('\n'); this.custom = (settings.customTrackers ?? []).join('\n');
       this.loaded = true;
@@ -63,6 +70,7 @@ export struct SettingsPanel {
         queueEnabled: this.queue, maxActive: this.number(this.active, '总活跃任务数', 0, 1000),
         maxDownloads: this.number(this.downloads, '同时下载数', 0, 1000), maxSeeds: this.number(this.seeds, '同时做种数', 0, 1000),
         seedEnabled: this.seedEnabled, dht: this.dht, lsd: this.lsd, natPmp: this.natPmp, upnp: this.upnp, utp: this.utp,
+        allowWifi: this.allowWifi, allowCellular: this.allowCellular, completionNotifications: this.completionNotifications,
         autoAddTrackers: this.autoTrackers, customTrackers: this.custom.split(/\r?\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0)
       };
       await call({ op: 'setNetworkSettings', settings: settings });
@@ -72,15 +80,23 @@ export struct SettingsPanel {
         saved.downloadLimitKiB !== settings.downloadLimitKiB || saved.uploadLimitKiB !== settings.uploadLimitKiB ||
         saved.listenPort !== settings.listenPort || saved.seedEnabled !== settings.seedEnabled ||
         saved.dht !== settings.dht || saved.lsd !== settings.lsd || saved.natPmp !== settings.natPmp ||
-        saved.upnp !== settings.upnp || saved.utp !== settings.utp || saved.autoAddTrackers !== settings.autoAddTrackers) {
+        saved.upnp !== settings.upnp || saved.utp !== settings.utp || saved.autoAddTrackers !== settings.autoAddTrackers ||
+        saved.allowWifi !== settings.allowWifi || saved.allowCellular !== settings.allowCellular ||
+        saved.completionNotifications !== settings.completionNotifications) {
         throw new Error('核心回读值不一致，请重试');
       }
       await this.load();
-      this.message = '核心与队列设置已保存，正在同步默认 Tracker…'; this.onSaved();
+      let notificationStatus = '下载完成通知已关闭。';
+      if (settings.completionNotifications) {
+        try {
+          notificationStatus = await this.onAuthorizeNotifications() ? '下载完成通知已启用。' : '通知偏好已保存，但系统尚未授权，请在系统设置中允许通知。';
+        } catch (_) { notificationStatus = '通知偏好已保存，但系统尚未授权，请在系统设置中允许通知。'; }
+      }
+      this.message = '核心、队列与网络设置已保存，正在同步默认 Tracker…'; this.onSaved();
       try {
         const syncStatus = await this.onSync(); await this.refreshDefaults();
-        this.message = '核心与队列设置已保存并应用。' + syncStatus;
-      } catch (_) { this.message = '核心与队列设置已保存；云端同步暂未完成，当前 Tracker 地址继续有效。'; }
+        this.message = '核心、队列与网络设置已保存并应用。' + notificationStatus + syncStatus;
+      } catch (_) { this.message = '核心、队列与网络设置已保存；云端同步暂未完成，当前 Tracker 地址继续有效。' + notificationStatus; }
     } catch(e) { this.message = '保存失败：' + (e as Error).message; }
     finally { this.saving = false; }
   }
@@ -108,6 +124,10 @@ export struct SettingsPanel {
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Column({ space: 14 }) {
         Text('BT 网络').fontSize(16).fontWeight(FontWeight.Medium)
+        SettingSwitch({ title: '允许无线网络下载 / 做种', value: $allowWifi })
+        SettingSwitch({ title: '允许蜂窝数据下载 / 做种', value: $allowCellular })
+        Text('默认允许无线网络和蜂窝数据。关闭蜂窝后仅使用无线网络；两项关闭将暂停 BT 传输。点击下方保存生效，切回允许的网络后自动继续，手动暂停的任务保持暂停。').fontSize(12).fontColor('#666666')
+        Text('限制网络时，如 VPN 或系统未能确认连接类型，将等待允许的网络；不会绕过 VPN。此开关不限制订阅与配置同步。').fontSize(12).fontColor('#8E8E93')
         SettingNumber({ title: '首选监听端口', value: $port })
         Text('默认 6882。保留 IPv4 / IPv6 自动发现与可用端口回退；实际端口显示在网络状态中。').fontSize(12).fontColor('#666666')
         SettingSwitch({ title: 'DHT 节点发现', value: $dht })
@@ -127,10 +147,15 @@ export struct SettingsPanel {
         TextArea({ text: this.custom, placeholder: 'http://、https:// 或 udp:// 地址' }).fontSize(13).height(160).onChange((v: string) => { this.custom = v; })
         Text('自动去重，保留磁力和种子自带地址。已识别为私有的种子不补充公共 Tracker。').fontSize(12).fontColor('#666666')
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+        Column({ space: 14 }) {
+          Text('下载完成通知').fontSize(16).fontWeight(FontWeight.Medium)
+          SettingSwitch({ title: '下载完成时通知', value: $completionNotifications })
+          Text(this.notificationPermission ? '系统通知已授权' : '尚未获得系统通知权限；开启后点击保存，将申请授权。').fontSize(13).fontColor('#8E8E93')
+          Text('与核心设置一起保存。关闭仅停止下载完成提醒，不影响系统要求的后台传输通知。').fontSize(12).fontColor('#666666')
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Button(this.saving ? '正在保存与同步…' : '保存核心设置').width('100%').backgroundColor('#F39A56').onClick(() => { this.save(); })
       }.enabled(this.loaded && !this.saving).alignItems(HorizontalAlign.Start).width('100%')
       if (this.message) { Text(this.message).fontSize(13).fontColor('#995522') }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
 }
-

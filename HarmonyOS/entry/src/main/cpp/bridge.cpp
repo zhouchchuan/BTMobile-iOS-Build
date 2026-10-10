@@ -20,6 +20,7 @@
 #include <httplib.h>
 #include "range.hpp"
 #include "bt_settings.hpp"
+#include "network_access.hpp"
 #include "archive_engine.hpp"
 #ifdef BTMOBILE_OHOS
 #include "ohos_network.hpp"
@@ -62,6 +63,21 @@ class Core {
     int port = 0;
     int btListenPort = 6882;
     json networkSettings = btmobile::defaultSettings();
+    bool networkBlocked = false;
+    std::string allowedInterface;
+    void evaluateNetworkAccess() {
+        bool known = false, wifi = false, cellular = false, other = false;
+#ifdef BTMOBILE_OHOS
+        known = network.code == 0 && network.bearerKnown;
+        wifi = network.wifi; cellular = network.cellular; other = network.otherBearer;
+#endif
+        bool allowWifi = networkSettings.at("allowWifi"), allowCellular = networkSettings.at("allowCellular");
+        networkBlocked = !btmobile::transferAllowed(allowWifi, allowCellular, known, wifi, cellular, other);
+        allowedInterface.clear();
+#ifdef BTMOBILE_OHOS
+        if (!networkBlocked && !(allowWifi && allowCellular)) allowedInterface = network.iface;
+#endif
+    }
     std::vector<std::string> managedTrackers = btmobile::defaultTrackers();
     std::int64_t managedRevision = 0;
     std::set<std::string> manuallyPaused;
@@ -100,7 +116,24 @@ class Core {
         settings.set_int(lt::settings_pack::active_seeds, !networkSettings.at("seedEnabled").get<bool>() ? 0 : queue ? networkSettings.at("maxSeeds").get<int>() : -1);
         settings.set_bool(lt::settings_pack::dont_count_slow_torrents, false);
         settings.set_int(lt::settings_pack::auto_manage_interval, 1);
+        // Session pause is independent from task manual/queue pause flags.
+        settings.set_bool(lt::settings_pack::enable_incoming_tcp, !networkBlocked);
+        settings.set_bool(lt::settings_pack::enable_outgoing_tcp, !networkBlocked);
+        settings.set_str(lt::settings_pack::outgoing_interfaces, allowedInterface);
+        if (!allowedInterface.empty()) settings.set_str(lt::settings_pack::listen_interfaces,
+            allowedInterface + ":" + std::to_string(btListenPort));
+        if (networkBlocked) {
+            settings.set_str(lt::settings_pack::listen_interfaces, "");
+            for (auto key : {lt::settings_pack::enable_dht, lt::settings_pack::enable_lsd,
+                lt::settings_pack::enable_natpmp, lt::settings_pack::enable_upnp,
+                lt::settings_pack::enable_incoming_utp, lt::settings_pack::enable_outgoing_utp}) settings.set_bool(key, false);
+        }
         return settings;
+    }
+    void applyNetworkAccess() {
+        if (networkBlocked) session->pause();
+        session->apply_settings(settingsPack());
+        if (!networkBlocked) session->resume();
     }
     bool managed() const { return networkSettings.at("queueEnabled").get<bool>() || !networkSettings.at("seedEnabled").get<bool>(); }
     void persistPauses() {
@@ -158,7 +191,15 @@ class Core {
         auto now = std::chrono::steady_clock::now();
         bool changed = updated.code == 0 && updated.identity != networkIdentity;
         bool lost = updated.code == -1 && !networkIdentity.empty();
+        bool wasBlocked = networkBlocked;
+        auto previousInterface = allowedInterface;
         network = std::move(updated);
+        evaluateNetworkAccess();
+        if (networkBlocked != wasBlocked || allowedInterface != previousInterface) {
+            applyNetworkAccess(); dhtSamples.clear();
+            diagnosticLog(networkBlocked ? "BT transfer blocked by network preference" : "BT transfer allowed by network preference");
+        }
+        if (networkBlocked) { networkIdentity = network.identity; return; }
         if (changed || lost || (network.code == 0 && !session->is_listening() && now >= nextNetworkRetry)) {
             networkIdentity = network.code == 0 ? network.identity : "";
             nextNetworkRetry = now + 30s; ++networkRetries;
@@ -175,7 +216,8 @@ class Core {
     json diagnostics() {
         json result = {{"listening",session->is_listening()},{"listenPort",session->listen_port()},{"configuredPort",btListenPort},
             {"dhtNodes",dhtNodes()},{"trackerReplies",trackerReplies},{"trackerPeers",trackerPeers},
-            {"metadataReceived",metadataReceived},{"listenError",listenError},{"trackerError",trackerError}};
+            {"metadataReceived",metadataReceived},{"listenError",listenError},{"trackerError",trackerError},
+            {"networkBlocked",networkBlocked}};
 #ifdef BTMOBILE_OHOS
         result["networkCode"] = network.code;
         result["interfaces"] = network.interfaces.size(); result["routes"] = network.routes.size();
@@ -228,7 +270,8 @@ class Core {
                 if (finished->handle.is_valid()) {
                     auto key = id(finished->handle);
                     if (tasks.count(key) && completionArmed.erase(key) && !completionSeen.count(key)) {
-                        completionSeen.insert(key); completionPending[key] = finished->handle.status().name;
+                        completionSeen.insert(key);
+                        if (networkSettings.at("completionNotifications").get<bool>()) completionPending[key] = finished->handle.status().name;
                         persistCompletions();
                     }
                 }
@@ -361,6 +404,10 @@ public:
                 std::ifstream input(root / ".state" / "network.json");
                 if (input) { json saved; input >> saved; networkSettings = validatedSettings(saved); btListenPort = networkSettings.at("listenPort"); }
             } catch (...) { diagnosticLog("invalid saved network settings; using defaults"); }
+#ifdef BTMOBILE_OHOS
+            network = btmobile_ohos::snapshot(); networkIdentity = network.identity;
+#endif
+            evaluateNetworkAccess();
             lt::settings_pack settings = settingsPack();
             settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.5");
             settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0150-");
@@ -370,11 +417,11 @@ public:
             settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(static_cast<std::uint32_t>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht | lt::alert_category::storage)));
             settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881");
 #ifdef BTMOBILE_OHOS
-            network = btmobile_ohos::snapshot(); networkIdentity = network.identity;
             nextNetworkRetry = std::chrono::steady_clock::now() + 30s;
             diagnosticLog("NetworkKit init: code=" + std::to_string(network.code) + " interfaces=" + std::to_string(network.interfaces.size()) + " routes=" + std::to_string(network.routes.size()));
 #endif
             session = std::make_unique<lt::session>(settings);
+            if (networkBlocked) session->pause();
             // All peer addresses share the global limit, including LAN peers.
             lt::ip_filter classes;
             auto globalClass = 1u << static_cast<unsigned>(lt::session::global_peer_class_id);
@@ -386,6 +433,7 @@ public:
                 std::ifstream saved(root / ".state" / "completions.json");
                 if (saved) { json data; saved >> data; completionSeen = data.at("seen").get<std::set<std::string>>(); completionPending = data.at("pending"); if (!completionPending.is_object()) completionPending = json::object(); }
             } catch (...) { completionPending = json::object(); diagnosticLog("completion state unavailable"); }
+            if (!networkSettings.at("completionNotifications").get<bool>()) completionPending = json::object();
             try {
                 std::ifstream saved(root / ".state" / "manual-pauses.json");
                 if (saved) { json pauses; saved >> pauses; manuallyPaused = pauses.get<std::set<std::string>>(); havePauseSettings = true; }
@@ -415,7 +463,8 @@ public:
                         std::lock_guard<std::mutex> l(mutex);
                         if (++tick % 15 == 0) for(auto const& item: tasks) item.second.save_resume_data(lt::torrent_handle::save_info_dict);
                         saveAlerts();
-                        if (tick % 5 == 0) { checkNetwork(); session->post_dht_stats(); }
+                        checkNetwork();
+                        if (tick % 5 == 0) session->post_dht_stats();
                         if (tick % 30 == 0) diagnosticLog("listening=" + std::to_string(session->is_listening()) + " dht_nodes=" + std::to_string(dhtNodes()) + " tracker_replies=" + std::to_string(trackerReplies) + " metadata=" + std::to_string(metadataReceived));
                     } catch (...) { diagnosticLog("core maintenance failed; retry on next tick"); }
                     std::this_thread::sleep_for(1s);
@@ -467,7 +516,13 @@ public:
                 networkSettings = updated; btListenPort = updated.at("listenPort");
                 if (portChanged) listenError.clear();
                 if (portChanged || !networkSettings.at("dht").get<bool>()) dhtSamples.clear();
-                session->apply_settings(settingsPack());
+                if (!networkSettings.at("completionNotifications").get<bool>()) {
+                    completionPending = json::object(); persistCompletions();
+                }
+#ifdef BTMOBILE_OHOS
+                network = btmobile_ohos::snapshot();
+#endif
+                evaluateNetworkAccess(); applyNetworkAccess();
                 for (auto const& item : tasks) applyTaskPolicy(item.second);
             }
             return {{"ok",true},{"port",btListenPort},{"settings",networkSettings}};
@@ -503,11 +558,11 @@ public:
                 bool manual = manuallyPaused.count(item.first) != 0;
                 bool checking = s.state == lt::torrent_status::checking_files || s.state == lt::torrent_status::checking_resume_data;
                 double progress = s.total_wanted > 0 ? std::clamp(double(s.total_wanted_done) / double(s.total_wanted),0.0,1.0) : s.has_metadata && s.is_finished ? 1.0 : 0.0;
-                std::string state = s.errc ? "任务错误" : manual ? "已暂停" : paused ? "等待队列" : checking ? "校验文件中" : !s.has_metadata ? "获取元数据" : s.is_finished ? "做种中" : "下载中";
+                std::string state = s.errc ? "任务错误" : manual ? "已暂停" : networkBlocked ? "等待允许的网络" : paused ? "等待队列" : checking ? "校验文件中" : !s.has_metadata ? "获取元数据" : s.is_finished ? "做种中" : "下载中";
                 if (!manual && s.is_finished && !networkSettings.at("seedEnabled").get<bool>()) state = "已完成（做种已关闭）";
                 list.push_back({{"id",item.first},{"name",s.name},{"progress",progress},{"done",s.total_wanted_done},{"total",s.total_wanted},
                     {"checking",checking},{"checkProgress",s.progress},{"download",s.download_payload_rate},{"upload",s.upload_payload_rate},
-                    {"peers",s.num_peers},{"paused",manual},{"active",!paused},{"state",state},{"error",s.errc ? s.errc.message() : ""},
+                    {"peers",s.num_peers},{"paused",manual},{"active",!paused && !networkBlocked},{"state",state},{"error",s.errc ? s.errc.message() : ""},
                     {"complete",s.has_metadata && s.is_finished && !checking},{"added",s.added_time},{"downloaded",s.all_time_download},{"uploaded",s.all_time_upload},
                     {"seeds",s.num_seeds},{"swarmSeeds",s.num_complete},{"swarmPeers",s.num_incomplete}});
             }
@@ -516,7 +571,7 @@ public:
         if (op == "refreshTask") {
             std::lock_guard<std::mutex> lock(mutex);
             auto h=tasks.at(j.at("id").get<std::string>());
-            if (!manuallyPaused.count(id(h))) { h.force_reannounce(); h.force_dht_announce(); }
+            if (!networkBlocked && !manuallyPaused.count(id(h))) { h.force_reannounce(); h.force_dht_announce(); }
             return {{"ok",true}};
         }
         if (op == "pause" || op == "resume") {
@@ -689,4 +744,3 @@ static napi_value Init(napi_env env,napi_value exports) {
 static napi_module module={1,0,nullptr,Init,"btmobile",nullptr,{0}};
 extern "C" __attribute__((constructor)) void RegisterBTMobile(){napi_module_register(&module);}
 #endif
-

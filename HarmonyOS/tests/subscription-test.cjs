@@ -6,7 +6,7 @@ let failAdd=false, duplicate=false, failures=0, networkCalls=0, saved=[];
 const native={call:async r=>{nativeRequests.push({...r});if(r.op==='validateAdd'){if(r.uri==='bad')throw Error('bad magnet');return {duplicate};}if(r.op==='add'){if(failAdd)throw Error('disk error');return {id:'fixture',duplicate:false};}return {items:[]};}};
 const util={TextEncoder:class{encodeInto(s){return new Uint8Array(Buffer.from(s));}}, TextDecoder:{create(){return{decodeWithStream:b=>Buffer.from(b).toString()};}},
   Base64Helper:class{encodeToStringSync(b){return Buffer.from(b).toString('base64');}decodeSync(s){return new Uint8Array(Buffer.from(s,'base64'));}},generateRandomUUID:()=>crypto.randomUUID()};
-const crypt={createMd:()=>{const h=crypto.createHash('sha256');return {update:async b=>h.update(b.data),digest:async()=>({data:new Uint8Array(h.digest())})};},
+const crypt={createMd:()=>{const h=crypto.createHash('sha256');return {update:async b=>{if(!b.data.length)throw Error('build context fail.');h.update(b.data);},digest:async()=>({data:new Uint8Array(h.digest())})};},
  createAsyKeyGenerator:()=>({convertKey:async b=>({pubKey:crypto.createPublicKey({key:Buffer.from(b.data),format:'der',type:'spki'})})}),
  createVerify:()=>{let key;return{init:async k=>{key=k;},verify:async (a,b)=>crypto.verify('sha256',a.data,key,b.data)}}};
 const http={RequestMethod:{GET:'GET',POST:'POST'},HttpDataType:{STRING:0},createHttp:()=>({request:async()=>{networkCalls++;throw Error('offline');},destroy(){}})};
@@ -15,12 +15,14 @@ function load(name){if(cache.has(name))return cache.get(name);const sandbox={exp
 const p=load('SubscriptionPolicy'),v=load('SubscriptionVault'),s=load('SubscriptionService');
 const now=Math.floor(Date.now()/1000),id=crypto.randomUUID().toUpperCase();
 const ledger=()=>({schema:1,deviceID:id,day:p.shanghaiDay(now),used:0,maxTime:now,receipt:'',config:'',revision:0});
-const claim=changes=>({aud:p.SUBSCRIPTION_AUDIENCE,deviceID:id,issuedAt:now,expiresAt:now+86400,validUntil:now+86400,priceCents:800,days:30,paymentsEnabled:true,subscriptionEnabled:true,paymentChannels:{alipay:true,wxpay:true},...changes});
+const claim=changes=>({aud:p.SUBSCRIPTION_AUDIENCE,deviceID:id,issuedAt:now,expiresAt:now+86400,validUntil:now+86400,priceCents:800,days:30,paymentsEnabled:true,subscriptionEnabled:true,paymentChannels:['alipay','wxpay'],...changes});
 const data=changes=>({aud:p.SUBSCRIPTION_AUDIENCE,kind:'client-config',nonce:'test',issuedAt:now,trackersRevision:2,trackers:['udp://tracker.example.test:80/announce'],heartbeatInterval:60,onlineWindow:180,...changes});
 assert.equal(p.shanghaiDay(Date.UTC(2026,9,10,15,59,59)/1000),'2026-10-10');
 assert.equal(p.shanghaiDay(Date.UTC(2026,9,10,16)/1000),'2026-10-11');
 let l=ledger();for(let i=0;i<3;i++)l=p.reserve(l,now);assert.equal(p.remaining(l,now),0);assert.throws(()=>p.reserve(l,now),/DAILY_LIMIT/);assert.equal(p.remaining(l,now+86400),3);assert.equal(p.refund(l,l.day).used,2);assert.equal(p.refund(l,'1999-01-01').used,3);
 p.validateLedger(l);assert.throws(()=>p.validateLedger({...l,used:-1}));
+for(const paymentChannels of [[],['alipay'],['wxpay'],['alipay','wxpay']])p.validateEntitlement(claim({paymentChannels}),id,now);
+for(const paymentChannels of [{alipay:true,wxpay:true},['unknown'],['alipay','alipay'],[1]])assert.throws(()=>p.validateEntitlement(claim({paymentChannels}),id,now));
 p.validateEntitlement(claim(),id,now);for(const c of [{aud:'wrong'},{deviceID:'wrong'},{issuedAt:now+301},{validUntil:now+86401},{priceCents:1},{days:365},{paymentChannels:null}])assert.throws(()=>p.validateEntitlement(claim(c),id,now));
 assert(p.paid(claim(),now));assert(!p.paid(claim({expiresAt:now}),now));assert(!p.unlimited(claim({validUntil:now}),now));assert(p.unlimited(claim({expiresAt:0,subscriptionEnabled:false}),now));
 p.validateConfig(data(), 'test', now, 1);for(const c of [{nonce:'old'},{issuedAt:now-300},{trackersRevision:0},{trackersRevision:1},{trackers:['file:///tmp/x']},{trackers:['https://user:pass@test/a']},{trackers:['udp://test/a']},{trackers:['https://test/a#x']},{trackers:['udp://test:65536/a']}])assert.throws(()=>p.validateConfig(data(c),'test',now,2));
@@ -54,4 +56,3 @@ function instance(){const state=new s.SubscriptionState(),service=new s.Subscrip
  for(const file of ['model/SubscriptionPolicy.ets','model/SubscriptionVault.ets','model/SubscriptionService.ets','components/SubscriptionPanel.ets','components/SubscriptionCheckout.ets']){const src=fs.readFileSync(path.join(root,'entry/src/main/ets',file),'utf8');const result=ts.createSourceFile(file,src,ts.ScriptTarget.Latest,true,ts.ScriptKind.ETS,opts);assert.equal(result.parseDiagnostics.length,0,file+': '+result.parseDiagnostics.map(d=>ts.flattenDiagnosticMessageText(d.messageText,'\n')).join('\n'));}
  console.log('PASS: daily boundary, quota concurrency/duplicates/refunds/durable reservation, paid/offline policy, signed-envelope rejection, ECDSA format, checkout allowlist, managed-config validation, all add entrypoints, ArkTS syntax. HUKS hardware and real payment require device validation.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
-

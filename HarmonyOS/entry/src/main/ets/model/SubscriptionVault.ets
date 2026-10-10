@@ -18,6 +18,9 @@ export function unbase64(value: string): Uint8Array {
 export function joinBytes(a: Uint8Array, b: Uint8Array): Uint8Array { const result = new Uint8Array(a.length + b.length); result.set(a); result.set(b, a.length); return result; }
 export function uuid(): string { return util.generateRandomUUID(true).toUpperCase(); }
 export async function sha256(value: string): Promise<string> {
+  // CryptoFramework Md.update rejects a zero-length DataBlob on the device.
+  // GET signing still requires SHA-256 of the empty body, not omission of the hash.
+  if (value.length === 0) return 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
   const md = crypto.createMd('SHA256'); await md.update({ data: utf8(value) });
   return Array.from((await md.digest()).data).map((v: number) => v.toString(16).padStart(2, '0')).join('');
 }
@@ -107,4 +110,3 @@ export class SubscriptionVault {
     return base64(bytes.slice(26));
   }
 }
-

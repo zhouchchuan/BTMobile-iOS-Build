@@ -17,6 +17,7 @@ export class CompletionNotifications {
     try {
       const events = (await call({ op: 'completionEvents' })).events ?? [];
       if (events.length === 0) return;
+      if ((await call({ op: 'getNetworkSettings' })).settings?.completionNotifications === false) return;
       if (!await this.enabled()) { this.retryAfter = Date.now() + 60000; return; }
       for (const event of events) {
         // Stable ID replaces an already-published event if acknowledgement was interrupted.
@@ -26,6 +27,7 @@ export class CompletionNotifications {
           operationType: wantAgent.OperationType.START_ABILITY, requestCode: notificationId,
           wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
         });
+        if ((await call({ op: 'getNetworkSettings' })).settings?.completionNotifications === false) return;
         await notificationManager.publish({ id: notificationId, label: event.id,
           notificationSlotType: notificationManager.SlotType.SERVICE_INFORMATION,
           content: { notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,

@@ -1,14 +1,13 @@
 // Compatible with the existing iOS / Android subscription service. No store prices are invented here.
 export const SUBSCRIPTION_ORIGIN: string = 'https://sub.linkyou.win:5288';
 export const SUBSCRIPTION_AUDIENCE: string = 'com.mxmall123.app';
-export const APP_VERSION: string = '1.0.2';
+export const APP_VERSION: string = '1.0.3';
 export const DAILY_FREE: number = 3;
 export const SERVER_PUBLIC_KEY: string = 'BFuxu2aaqgEyrjxGOADET1X69miait64KLxm4JYS2oTrRL/MH4iad2NTleo01HrMJCPt1sQHzVSGoaEnG8G+T2E=';
 export interface SignedEnvelope { payload: string; signature: string }
-export interface PaymentChannels { alipay: boolean; wxpay: boolean }
 export interface Entitlement {
   aud: string; deviceID: string; issuedAt: number; expiresAt: number; validUntil: number;
-  priceCents: number; days: number; paymentsEnabled: boolean; subscriptionEnabled: boolean; paymentChannels: PaymentChannels;
+  priceCents: number; days: number; paymentsEnabled: boolean; subscriptionEnabled: boolean; paymentChannels: string[];
 }
 export interface RuntimeConfig {
   aud: string; kind: string; nonce: string; issuedAt: number; trackersRevision: number; trackers: string[];
@@ -37,7 +36,9 @@ export function validateEntitlement(value: Entitlement, deviceID: string, now: n
     !safeInteger(value.issuedAt, 1, now + 300) || value.issuedAt < previousIssued ||
     !safeInteger(value.expiresAt, 0, 9999999999) || !safeInteger(value.validUntil, 1, 9999999999) || !safeInteger(value.validUntil - value.issuedAt, 1, 86400) ||
     value.priceCents !== 800 || value.days !== 30 || typeof value.paymentsEnabled !== 'boolean' || typeof value.subscriptionEnabled !== 'boolean' ||
-    !value.paymentChannels || typeof value.paymentChannels.alipay !== 'boolean' || typeof value.paymentChannels.wxpay !== 'boolean') {
+    !Array.isArray(value.paymentChannels) || value.paymentChannels.length > 2 ||
+    !value.paymentChannels.every((channel: string) => channel === 'alipay' || channel === 'wxpay') ||
+    new Set(value.paymentChannels).size !== value.paymentChannels.length) {
     throw new Error('订阅凭据校验失败，已保留上一次有效状态');
   }
 }
@@ -75,4 +76,3 @@ export function validateConfig(value: RuntimeConfig, nonce: string, now: number,
 export function validCheckout(value: string): boolean {
   return typeof value === 'string' && /^https:\/\/sub\.linkyou\.win:5288\/checkout\?token=[0-9a-f]{64}$/.test(value);
 }
-

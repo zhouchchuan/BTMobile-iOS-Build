@@ -5,12 +5,16 @@
 
 static int mockCode = 0, mockAvailable = 1;
 static NetConn_ConnectionProperties mockProperties{};
+static NetConn_NetCapabilities mockCapabilities{};
+static int mockCapabilitiesCode = 0;
 extern "C" int32_t OH_NetConn_HasDefaultNet(int32_t* out) { *out = mockAvailable; return mockCode; }
 extern "C" int32_t OH_NetConn_GetDefaultNet(NetConn_NetHandle* out) { out->netId = 42; return 0; }
 extern "C" int32_t OH_NetConn_GetConnectionProperties(NetConn_NetHandle*, NetConn_ConnectionProperties* out) { *out = mockProperties; return 0; }
+extern "C" int32_t OH_NetConn_GetNetCapabilities(NetConn_NetHandle*, NetConn_NetCapabilities* out) { *out = mockCapabilities; return mockCapabilitiesCode; }
 int main() {
     using namespace btmobile_ohos;
     auto& p = mockProperties;
+    mockCapabilities.bearerTypesSize = 1; mockCapabilities.bearerTypes[0] = NETCONN_BEARER_WIFI;
     copyName(p.ifaceName, "wlan0"); p.mtu = 1500;
     p.netAddrListSize = 2;
     copyName(p.netAddrList[0].address, "192.0.2.10"); p.netAddrList[0].prefixlen = 24;
@@ -22,6 +26,13 @@ int main() {
     copyName(p.routeList[1].gateway.address, "fe80::1"); p.routeList[1].hasGateway = 1;
     auto n = snapshot();
     assert(n.code == 0 && n.netId == 42 && n.interfaces.size() == 2 && n.routes.size() == 2);
+    assert(n.bearerKnown && n.wifi && !n.cellular && !n.otherBearer && n.iface == "wlan0");
+    mockCapabilities.bearerTypes[0] = NETCONN_BEARER_CELLULAR;
+    assert(snapshot().cellular && !snapshot().wifi && snapshot().identity != n.identity);
+    mockCapabilities.bearerTypes[0] = NETCONN_BEARER_VPN;
+    assert(snapshot().otherBearer && !snapshot().wifi);
+    mockCapabilitiesCode = 201; assert(!snapshot().bearerKnown && snapshot().code == 0);
+    mockCapabilitiesCode = 0; mockCapabilities.bearerTypes[0] = NETCONN_BEARER_WIFI;
     assert(n.interfaces[0].netmask.to_string() == "255.255.255.0");
     assert(n.interfaces[1].netmask.to_string() == "ffff:ffff:ffff:ffff::");
     assert(lt::aux::has_internet_route("wlan0", AF_INET, n.routes));

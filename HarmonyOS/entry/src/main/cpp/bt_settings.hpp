@@ -18,7 +18,8 @@ inline std::vector<std::string> defaultTrackers() {
 inline json defaultSettings() {
     return {{"listenPort",6882},{"dht",true},{"lsd",true},{"natPmp",true},{"upnp",true},{"utp",true},
         {"downloadLimitKiB",0},{"uploadLimitKiB",0},{"queueEnabled",false},{"maxActive",8},
-        {"maxDownloads",3},{"maxSeeds",5},{"seedEnabled",true},{"autoAddTrackers",true},{"customTrackers",json::array()}};
+        {"maxDownloads",3},{"maxSeeds",5},{"seedEnabled",true},{"autoAddTrackers",true},{"customTrackers",json::array()},
+        {"allowWifi",true},{"allowCellular",true},{"completionNotifications",true}};
 }
 inline json validateSettings(json current, json const& changes) {
     if (!changes.is_object()) throw std::runtime_error("设置格式无效");
@@ -33,7 +34,7 @@ inline json validateSettings(json current, json const& changes) {
     integer("listenPort",1024,65535,"BT 端口必须是 1024 到 65535 的整数");
     for (auto key : {"downloadLimitKiB","uploadLimitKiB"}) integer(key,0,1048576,"限速必须是 0 到 1048576 的整数（KiB/s），0 表示不限速");
     for (auto key : {"maxActive","maxDownloads","maxSeeds"}) integer(key,0,1000,"队列数量必须是 0 到 1000 的整数，0 表示该类任务全部等待");
-    for (auto key : {"dht","lsd","natPmp","upnp","utp","queueEnabled","seedEnabled","autoAddTrackers"})
+    for (auto key : {"dht","lsd","natPmp","upnp","utp","queueEnabled","seedEnabled","autoAddTrackers","allowWifi","allowCellular","completionNotifications"})
         if (!current[key].is_boolean()) throw std::runtime_error("开关设置无效");
     if (!current["customTrackers"].is_array() || current["customTrackers"].size() > 200)
         throw std::runtime_error("自定义 Tracker 最多 200 个，每行一个地址");

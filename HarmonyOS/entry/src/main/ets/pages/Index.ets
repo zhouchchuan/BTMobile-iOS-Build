@@ -125,9 +125,10 @@ struct Index {
     else promptAction.showToast({ message: '此任务已被移除，可在文件管理中查看保留的文件' });
   }
   visibleTasks(): TaskState[] { return this.tasks.filter((task: TaskState) => matchesTask(task, this.keyword, this.taskFilter)); }
-  async enableNotifications(): Promise<void> {
+  async enableNotifications(): Promise<boolean> {
     try { await this.notifications.authorize(getContext(this) as common.UIAbilityContext); this.notificationsEnabled = await this.notifications.enabled(); }
-    catch(e) { this.fail(new Error('通知尚未授权，请在系统设置中允许 BTmobie 发送通知。')); }
+    catch (_) { this.notificationsEnabled = false; }
+    return this.notificationsEnabled;
   }
   async refresh(): Promise<void> {
     if (this.polling) return;
@@ -215,8 +216,6 @@ struct Index {
       const admitted = await this.subscriptions.addTask(this.magnet.trim().replace(/^magnet:/i, 'magnet:'));
       if (!admitted) { this.showAdd = false; this.showSubscription = true; return; }
       this.magnet = ''; this.status = ''; this.showAdd = false; this.tab = 0; this.keyword = ''; this.taskFilter = 0; await this.refresh();
-      // A user-confirmed download is a suitable moment to request notification consent.
-      if (!this.notificationsEnabled) await this.enableNotifications();
     }
     catch(e) { this.fail(e as Error); }
     finally { this.adding = false; }
@@ -425,12 +424,8 @@ struct Index {
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               SettingsPanel({ trackerRevision: this.subscriptionState.trackerRevision, runtimeMessage: this.subscriptionState.runtimeMessage,
+                notificationPermission: this.notificationsEnabled, onAuthorizeNotifications: async () => this.enableNotifications(),
                 onSync: async () => { await this.subscriptions.synchronize(true); return this.subscriptionState.runtimeMessage; }, onSaved: () => { this.refresh(); } })
-              Column({ space: 12 }) {
-                Text('下载完成通知').fontSize(16).fontWeight(FontWeight.Medium)
-                Text(this.notificationsEnabled ? '系统通知已授权' : '未授权，请允许通知以接收下载完成提醒').fontSize(13).fontColor('#8E8E93')
-                Button('检查 / 开启通知').fontSize(14).fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.enableNotifications(); })
-              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
               Text('订阅信息').fontSize(16).fontWeight(FontWeight.Medium)
               Row() { Text('当前版本').fontSize(15).layoutWeight(1); Text('V' + APP_VERSION).fontSize(15).fontColor('#EE9A64') }.width('100%')
@@ -553,4 +548,3 @@ struct Index {
     }.width('100%').height('100%')
   }
 }
-

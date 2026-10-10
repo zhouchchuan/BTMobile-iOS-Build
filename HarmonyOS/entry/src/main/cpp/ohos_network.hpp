@@ -9,6 +9,7 @@ extern "C" {
 int32_t OH_NetConn_HasDefaultNet(int32_t*);
 int32_t OH_NetConn_GetDefaultNet(NetConn_NetHandle*);
 int32_t OH_NetConn_GetConnectionProperties(NetConn_NetHandle*, NetConn_ConnectionProperties*);
+int32_t OH_NetConn_GetNetCapabilities(NetConn_NetHandle*, NetConn_NetCapabilities*);
 }
 #else
 #include <network/netmanager/net_connection.h>
@@ -29,6 +30,8 @@ struct Network {
     std::vector<lt::aux::ip_interface> interfaces;
     std::vector<lt::aux::ip_route> routes;
     std::string identity;
+    std::string iface;
+    bool bearerKnown = false, wifi = false, cellular = false, otherBearer = false;
 };
 
 template <size_t N> inline std::string bounded(char const (&value)[N]) {
@@ -49,6 +52,7 @@ inline lt::address address(NetConn_NetAddr const& raw, std::string const& iface,
 inline Network convert(NetConn_ConnectionProperties const& prop, int netId) {
     Network result; result.netId = netId;
     const auto iface = bounded(prop.ifaceName);
+    result.iface = iface;
     if (iface.empty()) { result.code = -2; return result; }
     std::set<std::string> identities;
     for (int i = 0; i < std::clamp(prop.netAddrListSize, 0, NETCONN_MAX_ADDR_SIZE); ++i) {
@@ -99,7 +103,20 @@ inline Network snapshot() {
     auto prop = std::make_unique<NetConn_ConnectionProperties>();
     result.code = OH_NetConn_GetConnectionProperties(&handle, prop.get());
     if (result.code) return result;
-    return convert(*prop, handle.netId);
+    result = convert(*prop, handle.netId);
+    NetConn_NetCapabilities caps{};
+    if (OH_NetConn_GetNetCapabilities(&handle, &caps) == 0 && caps.bearerTypesSize > 0 &&
+        caps.bearerTypesSize <= int(sizeof(caps.bearerTypes) / sizeof(caps.bearerTypes[0]))) {
+        result.bearerKnown = true;
+        for (int i = 0; i < caps.bearerTypesSize; ++i) {
+            if (caps.bearerTypes[i] == NETCONN_BEARER_WIFI) result.wifi = true;
+            else if (caps.bearerTypes[i] == NETCONN_BEARER_CELLULAR) result.cellular = true;
+            else result.otherBearer = true;
+        }
+    }
+    result.identity += ":bearers:" + std::to_string(result.bearerKnown) + std::to_string(result.wifi) +
+        std::to_string(result.cellular) + std::to_string(result.otherBearer);
+    return result;
 }
 inline std::vector<lt::aux::ip_interface> interfaces(lt::error_code& ec) {
     auto network = snapshot(); ec.clear();

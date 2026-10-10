@@ -4,7 +4,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const assert = require('node:assert/strict'), crypto = require('node:crypto');
 const ts = require(process.argv[2]);
 const root = path.resolve(__dirname, '..');
-function harness(legacy = false) {
+function harness(legacy = false, transport) {
   const keys = new Map(), disk = new Map(), handles = new Map(), files = new Map();
   const cache = new Map(), timers = new Map(), requests = [], nativeCalls = [], messages = [];
   let next = 1, generationCount = 0, existenceFailure = false, configFailure = false, badConfig = false;
@@ -53,7 +53,7 @@ function harness(legacy = false) {
   };
   const crypt = {
     createRandom:()=>({generateRandom:async n=>({data:new Uint8Array(crypto.randomBytes(n))})}),
-    createMd:()=>{const h=crypto.createHash('sha256');return{update:async b=>h.update(b.data),digest:async()=>({data:new Uint8Array(h.digest())})};},
+    createMd:()=>{const h=crypto.createHash('sha256');return{update:async b=>{if(!b.data.length)throw Error('build context fail.');h.update(b.data);},digest:async()=>({data:new Uint8Array(h.digest())})};},
     createAsyKeyGenerator:()=>({convertKey:async b=>({pubKey:crypto.createPublicKey({key:Buffer.from(b.data),type:'spki',format:'der'})})}),
     createVerify:()=>{let key;return{init:async k=>{key=k;},verify:async(a,b)=>crypto.verify('sha256',a.data,key,b.data)};}
   };
@@ -61,6 +61,7 @@ function harness(legacy = false) {
   const http = {RequestMethod:{GET:'GET',POST:'POST'},HttpDataType:{STRING:0},createHttp:()=>({destroy(){},async request(url,options){
     const u=new URL(url), body=options.extraData, now=Math.floor(Date.now()/1000), aud='com.mxmall123.app';
     requests.push({path:u.pathname,body});
+    if(transport)return transport(u.pathname+u.search,options);
     let value;
     if(u.pathname==='/v1/bootstrap')value={aud,nonce:u.searchParams.get('nonce'),serverTime:now};
     else if(u.pathname==='/v1/register'){
@@ -68,13 +69,13 @@ function harness(legacy = false) {
       const prefix=Buffer.from([48,89,48,19,6,7,42,134,72,206,61,2,1,6,8,42,134,72,206,61,3,1,7,3,66,0]);
       registeredKey=crypto.createPublicKey({key:Buffer.concat([prefix,Buffer.from(data.publicKey,'base64')]),type:'spki',format:'der'});
       assert(crypto.verify('sha256',Buffer.from('register\n'+registeredID),registeredKey,Buffer.from(data.proof,'base64')));
-      value={aud,deviceID:registeredID,issuedAt:now,expiresAt:0,validUntil:now+86400,priceCents:800,days:30,paymentsEnabled:true,subscriptionEnabled:false,paymentChannels:{alipay:true,wxpay:true}};
+      value={aud,deviceID:registeredID,issuedAt:now,expiresAt:0,validUntil:now+86400,priceCents:800,days:30,paymentsEnabled:true,subscriptionEnabled:false,paymentChannels:['alipay','wxpay']};
     }else if(u.pathname==='/v1/client-config'){
       if(configFailure)throw Error('offline');
       value={aud,kind:'client-config',nonce:u.searchParams.get('nonce'),issuedAt:now,trackersRevision:3,trackers:['https://tracker.example.test/announce'],heartbeatInterval:60,onlineWindow:180};
     }else if(u.pathname==='/v1/activity'){
       const h=options.header, payload=JSON.parse(body);
-      assert.equal(h['X-Device-ID'],registeredID);assert.equal(payload.platform,'harmonyos');assert.equal(payload.version,'1.0.2');
+      assert.equal(h['X-Device-ID'],registeredID);assert.equal(payload.platform,'harmonyos');assert.equal(payload.version,'1.0.3');
       assert.deepEqual(Object.keys(payload).sort(),['platform','version','foreground','downloading','seeding','metadata','checking','downloadRate','uploadRate'].sort());
       const message='POST\n/v1/activity\n'+h['X-Time']+'\n'+h['X-Nonce']+'\n'+crypto.createHash('sha256').update(body).digest('hex');
       assert(crypto.verify('sha256',Buffer.from(message),registeredKey,Buffer.from(h['X-Signature'],'base64')));
@@ -100,7 +101,8 @@ function harness(legacy = false) {
     setExistenceFailure:x=>{existenceFailure=x;},setConfigFailure:x=>{configFailure=x;},setBadConfig:x=>{badConfig=x;},
     get generationCount(){return generationCount;},get activityCount(){return activityCount;}};
 }
-(async()=>{
+module.exports={harness};
+if(require.main===module)(async()=>{
   const old=harness(true), broken=old.make();await broken.start(old.context);
   assert.equal(broken.state.ready,false);assert.equal(old.generationCount,0);assert.equal(old.requests.length,0);
   assert(broken.state.message.includes('12000011'),'reproduce the old first-install API error');
@@ -131,4 +133,3 @@ function harness(legacy = false) {
   assert(!JSON.stringify(h.messages).includes(id),'diagnostics must not log device identity');
   console.log('PASS: old 12000011 reproduced; actual vault fresh install + AES-GCM persistence + P256 registration/activity proofs; offline/cache isolation; retries/concurrency; corruption/key-loss fail closed; no payments or private diagnostic payloads. Real HUKS still needs device acceptance.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
-

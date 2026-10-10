@@ -88,7 +88,13 @@ int main(int argc,char** argv) {
     assert(core.call({{"op","getNetworkSettings"}})["defaultTrackers"] == json::array({managedUrl}));
     assert(core.call({{"op","validateAdd"},{"uri",magnet}})["duplicate"] == false);
     assert(core.call({{"op","tasks"}})["items"].empty());
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",false},{"allowCellular",false},{"downloadLimitKiB",64}}}});
     auto added=core.call({{"op","add"},{"uri",magnet}}); std::string hash=added.at("id");
+    std::this_thread::sleep_for(1500ms);
+    auto gated = core.call({{"op","tasks"}});
+    assert(gated["network"]["networkBlocked"] == true && gated["items"][0]["active"] == false);
+    assert(gated["items"][0]["paused"] == false && gated["items"][0]["done"] == 0 && announces == 0);
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",true},{"allowCellular",true}}}});
     assert(core.call({{"op","validateAdd"},{"uri",magnet}})["duplicate"] == true);
     assert(core.call({{"op","add"},{"uri",magnet}})["duplicate"] == true);
     assert(core.call({{"op","validateAdd"},{"uri","fixture.torrent"}})["duplicate"] == true);
@@ -100,6 +106,21 @@ int main(int argc,char** argv) {
         bool blocked=false; try { core.call({{"op","setManagedTrackers"},{"revision",badRevision},{"trackers",json::array({managedUrl})}}); } catch (...) { blocked=true; }
         assert(blocked);
     }
+    bool receiving=false;
+    for(int i=0;i<200;++i) {
+        auto task = core.call({{"op","tasks"}})["items"][0];
+        if (task["done"].get<int64_t>() > 0 && task["done"].get<int64_t>() < int64_t(payload.size())) { receiving=true; break; }
+        std::this_thread::sleep_for(100ms);
+    }
+    assert(receiving);
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",false},{"allowCellular",false}}}});
+    std::this_thread::sleep_for(1500ms); // Drain already received disk writes.
+    auto stopped = core.call({{"op","tasks"}})["items"][0];
+    std::this_thread::sleep_for(1500ms);
+    auto stillStopped = core.call({{"op","tasks"}})["items"][0];
+    assert(stopped["done"] == stillStopped["done"] && stillStopped["paused"] == false && stillStopped["active"] == false);
+    assert(stillStopped["peers"] == 0 && stillStopped["done"].get<int64_t>() < int64_t(payload.size()));
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",true},{"allowCellular",true},{"downloadLimitKiB",0}}}});
     bool complete=false;
     for(int i=0;i<300;++i) {
         auto status=core.call({{"op","tasks"}});
@@ -125,6 +146,9 @@ int main(int argc,char** argv) {
     assert(queued); // Queued and manually paused are different states.
     core.call({{"op","pause"},{"id",hash}}); std::this_thread::sleep_for(250ms);
     assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",false},{"allowCellular",false}}}});
+    core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",true},{"allowCellular",true}}}});
+    assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
     core.call({{"op","setNetworkSettings"},{"settings",{{"queueEnabled",false},{"seedEnabled",true}}}});
     std::this_thread::sleep_for(250ms);
     assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
@@ -135,6 +159,9 @@ int main(int argc,char** argv) {
         std::this_thread::sleep_for(100ms);
     }
     assert(completion["events"].size()==1 && completion["events"][0]["id"]==hash);
+    core.call({{"op","setNetworkSettings"},{"settings",{{"completionNotifications",false}}}});
+    assert(core.call({{"op","completionEvents"}})["events"].empty());
+    core.call({{"op","setNetworkSettings"},{"settings",{{"completionNotifications",true}}}});
     core.call({{"op","ackCompletion"},{"id",hash}});
     assert(core.call({{"op","completionEvents"}})["events"].empty());
     auto stream=core.call({{"op","stream"},{"id",hash},{"index",0}});
@@ -185,4 +212,3 @@ int main(int argc,char** argv) {
     assert(!fs::exists(scratch/"download"/"fixture.bin") && fs::exists(scratch/"download"/"unicode.zip"));
     std::cout << "PASS: tracker/metadata/bytes with occupied port, queue/manual pause distinction, settings persistence, HTTP seek, UTF-8 ZIP roundtrip, extraction retry, scoped file deletion and both task-removal modes\n";
 }
-

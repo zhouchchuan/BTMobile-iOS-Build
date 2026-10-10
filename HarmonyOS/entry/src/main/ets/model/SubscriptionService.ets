@@ -85,8 +85,8 @@ export class SubscriptionService {
     this.state.trackerRevision = this.ledger?.revision ?? 0;
     this.state.status = this.state.subscribed ? '已订阅' : this.state.unlimited ? '当前不限次数' : '免费用户';
     const canPay = this.state.online && fresh(value, current) && value?.paymentsEnabled === true;
-    this.state.alipay = canPay && value?.paymentChannels.alipay === true;
-    this.state.wxpay = canPay && value?.paymentChannels.wxpay === true;
+    this.state.alipay = canPay && (value?.paymentChannels.includes('alipay') ?? false);
+    this.state.wxpay = canPay && (value?.paymentChannels.includes('wxpay') ?? false);
   }
   private async save(value: Ledger): Promise<void> {
     if (!this.vault) throw new Error('设备安全存储尚未就绪');
@@ -284,4 +284,3 @@ export class SubscriptionService {
     });
   }
 }
-

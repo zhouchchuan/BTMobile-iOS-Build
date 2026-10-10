@@ -1,0 +1,30 @@
+BTmobie HarmonyOS V1.0.3 / versionCode 10003
+Based on V1.0.2 commit 24522b08e28772454843b135e3fbb366fe7748e9.
+
+Fix subscription protocol: paymentChannels is a signed string array (alipay/wxpay),
+not a boolean-keyed object. Preserve pinned-key verification, device binding,
+quota rules and existing identity. Registered device now proceeds to verified
+entitlement and signed harmonyos/1.0.3 heartbeat. No production server changes.
+Avoid CryptoFramework update(empty): signed GET orders use canonical empty SHA256.
+Actual existing server source tested on loopback + memory DB with ephemeral keys:
+registration, receipt verification, online platform/version, signed orders,
+background activity, subscription-disabled unlimited policy. No payment created.
+
+One Save Core Settings applies notification preference, queue, limits, network
+and trackers. System notification permission remains distinct, requested only
+on explicit save with notification enabled; denial does not discard core settings.
+Disabled completion reminders clear pending events; background-transfer system
+notifications remain independent.
+
+Wi-Fi and cellular defaults both on. Restricted mode uses only the current default
+network identified by NetworkKit and binds BT to its interface; unknown/VPN bearers
+wait conservatively. Never enumerate or bypass alternate networks. Native maintenance
+checks every second; disallowed mode pauses the session and closes BT listeners,
+TCP/uTP/discovery/NAT services, without altering manual pause or queue preferences.
+Allowed return restores saved settings. Both switches off blocks BT. Subscription
+HTTP and downloaded-file playback remain independent. This is an app transfer policy,
+not an OS firewall guarantee; real phone Wi-Fi/cellular transitions need acceptance.
+
+AV1/player/archive sources, peer fingerprint, rate/queue/DHT/Tracker defaults unchanged.
+No app uninstall, download deletion, database reset, secret/log/video upload.
+Full cloud compilation and native integration tests pending.
