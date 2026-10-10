@@ -4,6 +4,33 @@
 #include <libtorrent/bencode.hpp>
 #include <cassert>
 #include <iostream>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+
+// Deliberately occupy both families/protocols: the preferred port must not
+// prevent libtorrent from finding an alternate listener and downloading.
+struct OccupiedPort {
+    std::vector<int> sockets;
+    explicit OccupiedPort(int port) {
+        for (int family : {AF_INET, AF_INET6}) for (int type : {SOCK_STREAM, SOCK_DGRAM}) {
+            int fd = ::socket(family, type, 0); assert(fd >= 0);
+            int result;
+            if (family == AF_INET6) {
+                int only = 1; assert(::setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &only, sizeof(only)) == 0);
+                sockaddr_in6 addr{}; addr.sin6_family = AF_INET6; addr.sin6_port = htons(port);
+                result = ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            } else {
+                sockaddr_in addr{}; addr.sin_family = AF_INET; addr.sin_port = htons(port);
+                result = ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            }
+            assert(result == 0);
+            if (type == SOCK_STREAM) assert(::listen(fd, 1) == 0);
+            sockets.push_back(fd);
+        }
+    }
+    ~OccupiedPort() { for (int fd : sockets) ::close(fd); }
+};
 
 // A locally generated payload and loopback-only swarm; no third-party media.
 int main(int argc,char** argv) {
@@ -40,6 +67,7 @@ int main(int argc,char** argv) {
     int trackerPort = tracker.bind_to_any_port("127.0.0.1"); assert(trackerPort > 0);
     std::thread trackerThread([&]{tracker.listen_after_bind();});
     struct StopTracker { httplib::Server& tracker; std::thread& thread; ~StopTracker(){tracker.stop();thread.join();} } stopTracker{tracker, trackerThread};
+    OccupiedPort occupied(6882);
     Core core;
     auto init=core.call({{"op","init"},{"root",(scratch/"download").string()}});
     assert(init.at("version").get<std::string>().find("2.1") == 0);
@@ -62,6 +90,9 @@ int main(int argc,char** argv) {
     }
     assert(complete);
     assert(announces > 0);
+    auto net = core.call({{"op","tasks"}}).at("network");
+    assert(net.at("listening") == true && net.at("configuredPort") == 6882);
+    assert(net.at("listenPort").get<int>() > 0 && net.at("listenPort") != 6882);
     std::ifstream downloaded(scratch/"download"/"fixture.bin",std::ios::binary);
     std::string actual((std::istreambuf_iterator<char>(downloaded)),{}); assert(actual==payload);
     core.call({{"op","pause"},{"id",hash}}); std::this_thread::sleep_for(250ms);
@@ -80,5 +111,9 @@ int main(int argc,char** argv) {
     assert(configured["settings"]["utp"] == false && configured["settings"]["listenPort"] == 6882);
     std::ifstream saved(scratch/"download"/".state"/"network.json"); json savedSettings; saved >> savedSettings;
     assert(savedSettings["utp"] == false);
-    std::cout << "PASS: HTTP tracker discovery without x.pe, real magnet metadata/download, verified bytes, pause, HTTP seek range, ZIP roundtrip, network settings defaults/validation/persistence\n";
+    core.call({{"op","setListenPort"},{"port",49182}});
+    assert(core.call({{"op","getNetworkSettings"}})["settings"]["listenPort"] == 49182);
+    { std::ifstream changed(scratch/"download"/".state"/"network.json"); changed >> savedSettings; }
+    assert(savedSettings["listenPort"] == 49182);
+    std::cout << "PASS: HTTP tracker discovery without x.pe, real magnet metadata/download with 6882 occupied (IPv4/IPv6 TCP/UDP), verified bytes, pause, HTTP seek range, ZIP roundtrip, custom port/settings validation/persistence\n";
 }

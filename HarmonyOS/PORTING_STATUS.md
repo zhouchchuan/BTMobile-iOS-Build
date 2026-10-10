@@ -9,13 +9,13 @@ BT client identity: `Htorrent/0.1.1`, peer fingerprint prefix `-HT0110-`.
 ## V0.1.1 scope and verification boundary
 
 - Replace Linux NETLINK interface/route enumeration with HarmonyOS NetworkKit (API 11+, minimum app API remains 12). Only use the OS default network; never select an alternate bearer to bypass a VPN.
-- Explicit default BT TCP/UDP port 6882; DHT, LSD, NAT-PMP, UPnP and incoming/outgoing uTP enabled. Existing default Tracker list is deduplicated into new and restored tasks.
+- Preferred default BT TCP/UDP port 6882; preserve libtorrent's native retry (10 alternate ports), OS-selected port fallback, outgoing ephemeral ports and IPv4/IPv6 discovery. UPnP/NAT-PMP negotiate external mappings themselves; the external port is not forced to 6882. DHT, LSD, NAT-PMP, UPnP and incoming/outgoing uTP are enabled. Existing default Tracker list is deduplicated into new and restored tasks.
 - Network changes trigger in-place socket recovery, not session destruction. Unchanged healthy connections are not restarted by polling. Failed listener retries are limited to once per 30 seconds.
 - Bounded DHT/Tracker/listener diagnostics in the app and privacy-safe native logs.
 - Persist background opt-in independently of the actual OS continuous-task approval. Errors remain visible, with retry backoff; the UI does not claim approval merely because the switch is on.
 - File manager, archive implementation, TXT and AVPlayer are unchanged from V0.1.0.
 
-Reserved N-API operations (no new settings controls yet): `getNetworkSettings`, `setNetworkSettings` with partial `settings` object (`listenPort`, `dht`, `lsd`, `natPmp`, `upnp`, `utp`), and `setListenPort` with integer `port`. Ports are 1024–65535. Values are atomically saved to `.state/network.json`, restored on launch, and applied in the existing session. Local playback HTTP uses a separate loopback port.
+Reserved N-API operations (no new settings controls yet): `getNetworkSettings`, `setNetworkSettings` with partial `settings` object (`listenPort`, `dht`, `lsd`, `natPmp`, `upnp`, `utp`), and `setListenPort` with integer `port`. Preferred ports are 1024–65535. Values are atomically saved to `.state/network.json`, restored on launch, and applied in the existing session. Diagnostics distinguish the configured preference from the effective port. Local playback HTTP uses a separate loopback port.
 
 V0.1.0 was successfully built, signed locally and installed on nova13. Its real-device magnet/download test failed despite the same link working on iOS/Android. Only the local playback listener was observed, not BT sockets. V0.1.1 targets that failure; passing cloud compilation or host tests must NOT be represented as passing nova13 downloads.
 

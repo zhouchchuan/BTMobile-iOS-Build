@@ -320,9 +320,9 @@ public:
             lt::settings_pack settings = settingsPack();
             settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.1");
             settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0110-");
-            // Do not silently drift to another configured port on conflict.
-            settings.set_int(lt::settings_pack::max_retry_port_bind, 0);
-            settings.set_bool(lt::settings_pack::listen_system_port_fallback, false);
+            // 6882 (or the user's port) is a preference, not a restriction.
+            // Preserve libtorrent's port retries, OS fallback, IPv4/IPv6 peer
+            // discovery, outgoing ephemeral ports and NAT mapping negotiation.
             settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(static_cast<std::uint32_t>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht)));
             settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881");
 #ifdef BTMOBILE_OHOS

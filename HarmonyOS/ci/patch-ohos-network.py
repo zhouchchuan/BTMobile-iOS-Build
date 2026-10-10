@@ -3,7 +3,7 @@
 The Linux host test path is unchanged. Repeated cached CI runs are idempotent.
 """
 import pathlib
-import re
+import subprocess
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -18,13 +18,20 @@ if marker not in text:
 
 source = root / 'src/enum_net.cpp'
 text = source.read_text()
-if marker not in text:
+source_marker = '// BTMOBILE_OHOS_NETWORK_V2'
+if marker in text:
+    # V1 wrapped a whole function by indentation; upstream has same-indented
+    # platform branches. Migrate only our cached source from the pinned object.
+    text = subprocess.check_output(['git', '-C', str(root), 'show',
+        '75a08775ba32bdb62157f9e49a786ecdd9f0a0fa:src/enum_net.cpp'], text=True)
+if source_marker not in text:
     anchor = '#include "libtorrent/config.hpp"'
     assert text.count(anchor) == 1
-    text = text.replace(anchor, anchor + '\n' + marker + '\n#if defined(BTMOBILE_OHOS)\n#include "ohos_network.hpp"\n#endif')
-    for name, method in [('enum_net_interfaces', 'interfaces'), ('enum_routes', 'routes')]:
-        pattern = r'(\tstd::vector<[^\n]+> ' + name + r'\(io_context& ios, error_code& ec\)\n\t\{\n)(.*?)(\n\t\})'
-        text, count = re.subn(pattern, lambda m: m[1] + '#if defined(BTMOBILE_OHOS)\n\t\tTORRENT_UNUSED(ios);\n\t\treturn btmobile_ohos::' + method + '(ec);\n#else\n' + m[2] + '\n#endif' + m[3], text, flags=re.S)
-        assert count == 1, 'Pinned libtorrent function changed: ' + name
+    text = text.replace(anchor, anchor + '\n' + source_marker + '\n#if defined(BTMOBILE_OHOS)\n#include "ohos_network.hpp"\n#endif')
+    for anchor, method in [('#if defined TORRENT_BUILD_SIMULATOR\n\n\t\tstd::vector<address> ips', 'interfaces'),
+                           ('#ifdef TORRENT_BUILD_SIMULATOR\n\n\t\tTORRENT_UNUSED(ec);', 'routes')]:
+        assert text.count(anchor) == 1, 'Pinned libtorrent platform anchor changed: ' + method
+        tail = anchor.split('\n', 1)[1]
+        text = text.replace(anchor, '#if defined(BTMOBILE_OHOS)\n\t\treturn btmobile_ohos::' + method + '(ec);\n#elif defined TORRENT_BUILD_SIMULATOR\n' + tail)
     source.write_text(text)
 print('HarmonyOS NetworkKit adapter applied; Linux host path preserved')
