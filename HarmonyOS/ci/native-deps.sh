@@ -10,6 +10,7 @@ if [ ! -f "$D/libtorrent/CMakeLists.txt" ]; then
   git -C "$D/libtorrent" checkout 75a08775ba32bdb62157f9e49a786ecdd9f0a0fa
   git -C "$D/libtorrent" submodule update --init --recursive
 fi
+python3 "$ROOT/ci/patch-ohos-network.py" "$D/libtorrent"
 if [ ! -f "$D/boost/boost/version.hpp" ]; then
   fetch https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.bz2 "$D/boost.tar.bz2"
   unpack "$D/boost.tar.bz2" "$D/boost"

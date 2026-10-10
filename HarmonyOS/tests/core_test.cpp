@@ -27,10 +27,32 @@ int main(int argc,char** argv) {
     params.flags=lt::torrent_flags::seed_mode;auto seed=seeder.add_torrent(params);
     for(int i=0;i<100 && seeder.listen_port()==0;++i)std::this_thread::sleep_for(100ms);
     assert(seeder.listen_port()!=0);
+    // A real HTTP tracker response discovers the seed. No x.pe shortcut, no
+    // fixed peer injected into the client, and no external payload or swarm.
+    httplib::Server tracker;
+    std::atomic<int> announces{0};
+    tracker.Get("/announce", [&](httplib::Request const&, httplib::Response& res) {
+        ++announces; int seedPort = seeder.listen_port();
+        std::string peers; peers += char(127); peers += char(0); peers += char(0); peers += char(1);
+        peers += char(seedPort >> 8); peers += char(seedPort & 255);
+        res.set_content("d8:intervali10e5:peers6:" + peers + "e", "application/x-bittorrent");
+    });
+    int trackerPort = tracker.bind_to_any_port("127.0.0.1"); assert(trackerPort > 0);
+    std::thread trackerThread([&]{tracker.listen_after_bind();});
+    struct StopTracker { httplib::Server& tracker; std::thread& thread; ~StopTracker(){tracker.stop();thread.join();} } stopTracker{tracker, trackerThread};
     Core core;
     auto init=core.call({{"op","init"},{"root",(scratch/"download").string()}});
     assert(init.at("version").get<std::string>().find("2.1") == 0);
-    std::string magnet=lt::make_magnet_uri(params)+"&x.pe=127.0.0.1:"+std::to_string(seeder.listen_port());
+    auto defaults = core.call({{"op","getNetworkSettings"}}).at("settings");
+    assert(defaults.at("listenPort") == 6882);
+    for(auto const& key : {"dht","lsd","natPmp","upnp","utp"}) assert(defaults.at(key) == true);
+    // No-op updates and validation must not disturb tasks; stored settings are
+    // independent of background preferences and the HTTP playback port.
+    core.call({{"op","setNetworkSettings"},{"settings",{{"lsd",false},{"upnp",false},{"natPmp",false},{"dht",false}}}});
+    bool rejected = false;
+    try { core.call({{"op","setListenPort"},{"port",70000}}); } catch (std::exception const&) { rejected = true; }
+    assert(rejected && core.call({{"op","getNetworkSettings"}})["settings"]["listenPort"] == 6882);
+    std::string magnet=lt::make_magnet_uri(params)+"&tr=http%3A%2F%2F127.0.0.1%3A"+std::to_string(trackerPort)+"%2Fannounce";
     auto added=core.call({{"op","add"},{"uri",magnet}}); std::string hash=added.at("id");
     bool complete=false;
     for(int i=0;i<300;++i) {
@@ -39,6 +61,7 @@ int main(int argc,char** argv) {
         std::this_thread::sleep_for(100ms);
     }
     assert(complete);
+    assert(announces > 0);
     std::ifstream downloaded(scratch/"download"/"fixture.bin",std::ios::binary);
     std::string actual((std::istreambuf_iterator<char>(downloaded)),{}); assert(actual==payload);
     core.call({{"op","pause"},{"id",hash}}); std::this_thread::sleep_for(250ms);
@@ -53,5 +76,9 @@ int main(int argc,char** argv) {
     core.call({{"op","extract"},{"path","fixture.zip"},{"output","expanded"}});
     std::ifstream extracted(scratch/"download"/"expanded"/"fixture.bin",std::ios::binary);
     std::string roundtrip((std::istreambuf_iterator<char>(extracted)),{});assert(roundtrip==payload);
-    std::cout << "PASS: real magnet metadata, loopback download, verified bytes, pause, HTTP seek range, ZIP roundtrip\n";
+    auto configured = core.call({{"op","setNetworkSettings"},{"settings",{{"utp",false}}}});
+    assert(configured["settings"]["utp"] == false && configured["settings"]["listenPort"] == 6882);
+    std::ifstream saved(scratch/"download"/".state"/"network.json"); json savedSettings; saved >> savedSettings;
+    assert(savedSettings["utp"] == false);
+    std::cout << "PASS: HTTP tracker discovery without x.pe, real magnet metadata/download, verified bytes, pause, HTTP seek range, ZIP roundtrip, network settings defaults/validation/persistence\n";
 }

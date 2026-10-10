@@ -2,7 +2,9 @@ import * as native from 'libbtmobile.so';
 
 export interface TaskInfo { id: string; name: string; progress: number; download: number; upload: number; peers: number; paused: boolean; state: string; error: string }
 export interface TorrentFile { index: number; name: string; size: number; done: number }
-export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[] }
+export interface NetworkInfo { listening: boolean; listenPort: number; configuredPort: number; dhtNodes: number; trackerReplies: number; trackerPeers: number; metadataReceived: number; listenError: string; trackerError: string; networkCode: number; interfaces: number; routes: number; recoveries: number }
+export interface NetworkSettings { listenPort?: number; dht?: boolean; lsd?: boolean; natPmp?: boolean; upnp?: boolean; utp?: boolean }
+export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[]; network?: NetworkInfo; port?: number; settings?: NetworkSettings }
 export interface FileResult { items: TorrentFile[] }
 export interface PeerInfo { address: string; client: string; download: number; upload: number; progress: number }
 interface PeerResult { items: PeerInfo[] }
@@ -15,6 +17,8 @@ export interface Request {
   path?: string;
   output?: string;
   password?: string;
+  port?: number;
+  settings?: NetworkSettings;
 }
 export async function call(request: Request): Promise<NativeResult> {
   return JSON.parse(await native.invoke(JSON.stringify(request))) as NativeResult;

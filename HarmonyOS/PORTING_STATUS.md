@@ -1,9 +1,23 @@
-# BTMobile HarmonyOS V0.1.0
+# BTMobile HarmonyOS V0.1.1
 
 Source baseline: iOS V1.2.5, main commit d331eb51ff9a3d33d1ea6233de690e1430e37f1c.
 This is a new ArkTS/ArkUI + NDK C++ implementation, not an iOS binary wrapper.
 Minimum API: HarmonyOS 5.0, API 12. Target architecture: arm64-v8a.
-BT client identity: `Htorrent/0.1.0`, peer fingerprint prefix `-HT0100-`.
+V0.1.1 change baseline: HarmonyOS V0.1.0 commit 918a9ffeab73b57aa7b2e97a419599d5b469b470.
+BT client identity: `Htorrent/0.1.1`, peer fingerprint prefix `-HT0110-`.
+
+## V0.1.1 scope and verification boundary
+
+- Replace Linux NETLINK interface/route enumeration with HarmonyOS NetworkKit (API 11+, minimum app API remains 12). Only use the OS default network; never select an alternate bearer to bypass a VPN.
+- Explicit default BT TCP/UDP port 6882; DHT, LSD, NAT-PMP, UPnP and incoming/outgoing uTP enabled. Existing default Tracker list is deduplicated into new and restored tasks.
+- Network changes trigger in-place socket recovery, not session destruction. Unchanged healthy connections are not restarted by polling. Failed listener retries are limited to once per 30 seconds.
+- Bounded DHT/Tracker/listener diagnostics in the app and privacy-safe native logs.
+- Persist background opt-in independently of the actual OS continuous-task approval. Errors remain visible, with retry backoff; the UI does not claim approval merely because the switch is on.
+- File manager, archive implementation, TXT and AVPlayer are unchanged from V0.1.0.
+
+Reserved N-API operations (no new settings controls yet): `getNetworkSettings`, `setNetworkSettings` with partial `settings` object (`listenPort`, `dht`, `lsd`, `natPmp`, `upnp`, `utp`), and `setListenPort` with integer `port`. Ports are 1024–65535. Values are atomically saved to `.state/network.json`, restored on launch, and applied in the existing session. Local playback HTTP uses a separate loopback port.
+
+V0.1.0 was successfully built, signed locally and installed on nova13. Its real-device magnet/download test failed despite the same link working on iOS/Android. Only the local playback listener was observed, not BT sockets. V0.1.1 targets that failure; passing cloud compilation or host tests must NOT be represented as passing nova13 downloads.
 
 ## Implemented in source, pending build/device validation
 
@@ -23,15 +37,16 @@ BT client identity: `Htorrent/0.1.0`, peer fingerprint prefix `-HT0100-`.
 - Background continuous task registration is implemented but lock-screen survival has not been tested; no guarantee of uninterrupted downloading.
 - Subscription/policy/heartbeat/remote Tracker administration, WebDAV, PiP, file sharing, and advanced file operations are not yet ported.
 - Complete encrypted/split-volume compatibility is not yet implemented. ZIP creation is supported; libarchive does not support every encryption scheme accepted by iOS's 7-Zip backend.
-- No real device has been tested. No UDID-bound debug Profile is available. Cloud output must be called an unsigned HAP, not a directly installable signed package.
+- A nova13-bound debug Profile is available locally. Cloud output is an unsigned HAP; private keys and signing passwords remain local. V0.1.1 needs a separate on-device download/background regression test after installation.
 
 ## Build
 
 The GitHub workflow `.github/workflows/harmony-v010.yml` uses the official Huawei command-line tools, verifies their SHA-256, compiles native dependencies and ArkTS, and verifies that the resulting HAP contains `ets/modules.abc` and `libbtmobile.so`.
-No private signing material is required or uploaded. Signing will be performed locally after a matching debug Profile is supplied.
+No private signing material is required or uploaded. Signing is performed locally with the existing matching debug Profile.
 
 ## Safety and tests
 
 `tests/range_test.cpp` tests byte-range edge cases and archive traversal rejection. It does not substitute for network or device integration tests.
+`tests/core_test.cpp` uses a generated local payload and a real HTTP tracker response to test peer discovery without `x.pe`, magnet metadata, byte-verified download, pause, HTTP ranges, ZIP roundtrip and settings validation/persistence. `tests/network_test.cpp` checks IPv4/IPv6 conversion against the SDK's own structures, routes, VPN isolation and unavailable/denied network inputs. These host tests do not replace real-device NetworkKit access, public DHT or lock-screen tests.
 Extraction writes to a new destination, never overwrites source data. Partial output is retained on cancellation/failure.
 Only user-selected document-picker files are imported into the sandbox. Local media file handles are released with the player.

@@ -18,6 +18,10 @@
 #include <nlohmann/json.hpp>
 #include <httplib.h>
 #include "range.hpp"
+#ifdef BTMOBILE_OHOS
+#include "ohos_network.hpp"
+#include <hilog/log.h>
+#endif
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -43,6 +47,95 @@ class Core {
     std::atomic<int> archiveProgress{-1};
     std::atomic<bool> cancelArchive{false};
     int port = 0;
+    int btListenPort = 6882;
+    json networkSettings = {{"listenPort",6882},{"dht",true},{"lsd",true},{"natPmp",true},{"upnp",true},{"utp",true}};
+    static std::string listenAddresses(int value) {
+        return "0.0.0.0:" + std::to_string(value) + ",[::]:" + std::to_string(value);
+    }
+    json validatedSettings(json const& changes) const {
+        if (!changes.is_object()) throw std::runtime_error("网络设置格式无效");
+        json result = networkSettings;
+        for (auto const& key : {"listenPort","dht","lsd","natPmp","upnp","utp"}) {
+            if (changes.contains(key)) result[key] = changes.at(key);
+        }
+        if (!result["listenPort"].is_number_integer()) throw std::runtime_error("BT 端口必须是整数");
+        auto value = result["listenPort"].get<int64_t>();
+        if (value < 1024 || value > 65535) throw std::runtime_error("BT 端口必须在 1024 到 65535 之间");
+        for (auto const& key : {"dht","lsd","natPmp","upnp","utp"}) if (!result[key].is_boolean()) throw std::runtime_error("网络开关必须是布尔值");
+        return result;
+    }
+    lt::settings_pack settingsPack() const {
+        lt::settings_pack settings;
+        settings.set_str(lt::settings_pack::listen_interfaces, listenAddresses(btListenPort));
+        settings.set_bool(lt::settings_pack::enable_dht, networkSettings.at("dht"));
+        settings.set_bool(lt::settings_pack::enable_lsd, networkSettings.at("lsd"));
+        settings.set_bool(lt::settings_pack::enable_natpmp, networkSettings.at("natPmp"));
+        settings.set_bool(lt::settings_pack::enable_upnp, networkSettings.at("upnp"));
+        settings.set_bool(lt::settings_pack::enable_incoming_utp, networkSettings.at("utp"));
+        settings.set_bool(lt::settings_pack::enable_outgoing_utp, networkSettings.at("utp"));
+        return settings;
+    }
+    void appendDefaultTrackers(lt::add_torrent_params& params) const {
+        // Keep explicit/private tracker URLs and order; append missing defaults.
+        for (auto const& url : trackers) if (std::find(params.trackers.begin(), params.trackers.end(), url) == params.trackers.end()) {
+            params.trackers.push_back(url);
+            params.tracker_tiers.resize(params.trackers.size(), 0);
+        }
+    }
+    std::string listenError, trackerError;
+    int trackerReplies = 0, trackerPeers = 0, metadataReceived = 0;
+    struct DhtSample { int nodes; std::chrono::steady_clock::time_point time; };
+    std::map<std::string, DhtSample> dhtSamples;
+#ifdef BTMOBILE_OHOS
+    btmobile_ohos::Network network;
+    std::string networkIdentity;
+    int networkRetries = 0;
+    std::chrono::steady_clock::time_point nextNetworkRetry{};
+#endif
+    static void diagnosticLog(std::string const& text) {
+#ifdef BTMOBILE_OHOS
+        // No magnet URIs, hashes, filenames, tracker tokens or device IDs.
+        OH_LOG_Print(LOG_APP, LOG_INFO, 0x1201, "BTMobileCore", "%{public}s", text.c_str());
+#else
+        (void)text;
+#endif
+    }
+    int dhtNodes() const {
+        int nodes = 0; auto now = std::chrono::steady_clock::now();
+        for (auto const& sample : dhtSamples) if (now - sample.second.time < 30s) nodes += sample.second.nodes;
+        return nodes;
+    }
+    void checkNetwork() {
+#ifdef BTMOBILE_OHOS
+        auto updated = btmobile_ohos::snapshot();
+        auto now = std::chrono::steady_clock::now();
+        bool changed = updated.code == 0 && updated.identity != networkIdentity;
+        bool lost = updated.code == -1 && !networkIdentity.empty();
+        network = std::move(updated);
+        if (changed || lost || (network.code == 0 && !session->is_listening() && now >= nextNetworkRetry)) {
+            networkIdentity = network.code == 0 ? network.identity : "";
+            nextNetworkRetry = now + 30s; ++networkRetries;
+            dhtSamples.clear(); listenError.clear();
+            session->reopen_network_sockets();
+            if (network.code == 0) for (auto const& item : tasks) {
+                if (item.second.status().flags & lt::torrent_flags::paused) continue;
+                item.second.force_reannounce(); item.second.force_dht_announce();
+            }
+            diagnosticLog("network recovery: code=" + std::to_string(network.code) + " interfaces=" + std::to_string(network.interfaces.size()) + " routes=" + std::to_string(network.routes.size()));
+        }
+#endif
+    }
+    json diagnostics() {
+        json result = {{"listening",session->is_listening()},{"listenPort",session->listen_port()},{"configuredPort",btListenPort},
+            {"dhtNodes",dhtNodes()},{"trackerReplies",trackerReplies},{"trackerPeers",trackerPeers},
+            {"metadataReceived",metadataReceived},{"listenError",listenError},{"trackerError",trackerError}};
+#ifdef BTMOBILE_OHOS
+        result["networkCode"] = network.code;
+        result["interfaces"] = network.interfaces.size(); result["routes"] = network.routes.size();
+        result["recoveries"] = networkRetries;
+#endif
+        return result;
+    }
     struct Stream {
         lt::torrent_handle handle;
         int index = 0;
@@ -76,6 +169,21 @@ class Core {
     void saveAlerts() {
         std::vector<lt::alert*> alerts; session->pop_alerts(&alerts);
         for (auto a : alerts) {
+            if (auto failed = lt::alert_cast<lt::listen_failed_alert>(a)) {
+                listenError = "网络监听失败：" + failed->error.message() + " (" + std::to_string(failed->error.value()) + ", op=" + std::to_string(static_cast<int>(failed->op)) + ")";
+                diagnosticLog(listenError);
+            } else if (lt::alert_cast<lt::listen_succeeded_alert>(a)) {
+                diagnosticLog("BT listener ready");
+            } else if (auto reply = lt::alert_cast<lt::tracker_reply_alert>(a)) {
+                ++trackerReplies; trackerPeers += reply->num_peers;
+            } else if (auto failed = lt::alert_cast<lt::tracker_error_alert>(a)) {
+                trackerError = "最近 Tracker 错误：" + failed->error.message() + " (" + std::to_string(failed->error.value()) + ")";
+            } else if (lt::alert_cast<lt::metadata_received_alert>(a)) {
+                ++metadataReceived; diagnosticLog("magnet metadata received");
+            } else if (auto stats = lt::alert_cast<lt::dht_stats_alert>(a)) {
+                int nodes = 0; for (auto const& bucket : stats->routing_table) nodes += bucket.num_nodes;
+                dhtSamples[stats->local_endpoint.address().to_string()] = {nodes, std::chrono::steady_clock::now()};
+            }
             if (auto s = lt::alert_cast<lt::save_resume_data_alert>(a)) {
                 if (!s->handle.is_valid() || !tasks.count(id(s->handle))) continue;
                 auto data = lt::write_resume_data_buf(s->params);
@@ -205,14 +313,23 @@ public:
             std::lock_guard<std::mutex> lock(mutex);
             if (session) return {{"ok",true},{"version",LIBTORRENT_VERSION}};
             root = fs::weakly_canonical(j.at("root").get<std::string>()); fs::create_directories(root / ".state");
-            lt::settings_pack settings;
-            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.0");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0100-");
-            settings.set_bool(lt::settings_pack::enable_dht, true);
-            settings.set_bool(lt::settings_pack::enable_lsd, true);
-            settings.set_bool(lt::settings_pack::enable_upnp, true);
-            settings.set_bool(lt::settings_pack::enable_natpmp, true);
+            try {
+                std::ifstream input(root / ".state" / "network.json");
+                if (input) { json saved; input >> saved; networkSettings = validatedSettings(saved); btListenPort = networkSettings.at("listenPort"); }
+            } catch (...) { diagnosticLog("invalid saved network settings; using defaults"); }
+            lt::settings_pack settings = settingsPack();
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.1");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0110-");
+            // Do not silently drift to another configured port on conflict.
+            settings.set_int(lt::settings_pack::max_retry_port_bind, 0);
+            settings.set_bool(lt::settings_pack::listen_system_port_fallback, false);
+            settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht));
             settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881");
+#ifdef BTMOBILE_OHOS
+            network = btmobile_ohos::snapshot(); networkIdentity = network.identity;
+            nextNetworkRetry = std::chrono::steady_clock::now() + 30s;
+            diagnosticLog("NetworkKit init: code=" + std::to_string(network.code) + " interfaces=" + std::to_string(network.interfaces.size()) + " routes=" + std::to_string(network.routes.size()));
+#endif
             session = std::make_unique<lt::session>(settings);
             for (auto const& file : fs::directory_iterator(root / ".state")) {
                 if (file.path().extension() != ".resume") continue;
@@ -220,6 +337,7 @@ public:
                     std::ifstream f(file.path(), std::ios::binary); std::vector<char> bytes((std::istreambuf_iterator<char>(f)),{});
                     lt::error_code ec; auto params = lt::read_resume_data(bytes, ec); if (ec) continue;
                     params.save_path = root.string(); params.flags &= ~lt::torrent_flags::auto_managed;
+                    appendDefaultTrackers(params);
                     auto h = session->add_torrent(params, ec); if (!ec) tasks[id(h)] = h;
                 } catch (...) { /* Corrupt resume files do not discard other tasks. */ }
             }
@@ -235,20 +353,44 @@ public:
                         std::lock_guard<std::mutex> l(mutex);
                         if (++tick % 15 == 0) for(auto const& item: tasks) item.second.save_resume_data(lt::torrent_handle::save_info_dict);
                         saveAlerts();
-                    } catch (...) {}
+                        if (tick % 5 == 0) { checkNetwork(); session->post_dht_stats(); }
+                        if (tick % 30 == 0) diagnosticLog("listening=" + std::to_string(session->is_listening()) + " dht_nodes=" + std::to_string(dhtNodes()) + " tracker_replies=" + std::to_string(trackerReplies) + " metadata=" + std::to_string(metadataReceived));
+                    } catch (...) { diagnosticLog("core maintenance failed; retry on next tick"); }
                     std::this_thread::sleep_for(1s);
                 }
             });
             return {{"ok",true},{"version",LIBTORRENT_VERSION}};
         }
         if (!session) throw std::runtime_error("下载核心尚未启动");
+        if (op == "getNetworkSettings") {
+            std::lock_guard<std::mutex> l(mutex);
+            return {{"settings",networkSettings}};
+        }
+        if (op == "setListenPort" || op == "setNetworkSettings") {
+            // Stable settings API: partial updates, validation, atomic persistence.
+            // Reconfigure libtorrent in place, never replace the active session.
+            std::lock_guard<std::mutex> l(mutex);
+            auto updated = validatedSettings(op == "setListenPort" ? json{{"listenPort",j.at("port")}} : j.at("settings"));
+            if (updated != networkSettings) {
+                auto path = root / ".state" / "network.json";
+                std::ofstream out(path.string() + ".tmp"); out << updated.dump(); out.close();
+                if (!out) throw std::runtime_error("无法保存 BT 网络设置");
+                fs::rename(path.string() + ".tmp", path);
+                bool portChanged = updated.at("listenPort") != networkSettings.at("listenPort");
+                networkSettings = updated; btListenPort = updated.at("listenPort");
+                if (portChanged) listenError.clear();
+                if (portChanged || !networkSettings.at("dht").get<bool>()) dhtSamples.clear();
+                session->apply_settings(settingsPack());
+            }
+            return {{"ok",true},{"port",btListenPort},{"settings",networkSettings}};
+        }
         if (op == "add") {
             lt::error_code ec; std::string uri = j.at("uri"); lt::add_torrent_params p;
             if (uri.rfind("magnet:?",0) == 0) p = lt::parse_magnet_uri(uri,ec);
             else p = lt::load_torrent_file(checked(uri).string());
             if (ec) throw std::runtime_error("磁力链接或种子文件无效");
             p.save_path = root.string(); p.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
-            p.trackers.insert(p.trackers.end(), trackers.begin(), trackers.end());
+            appendDefaultTrackers(p);
             std::lock_guard<std::mutex> l(mutex); auto h = session->add_torrent(p,ec);
             if (ec) throw std::runtime_error(ec.message());
             tasks[id(h)] = h; h.save_resume_data(lt::torrent_handle::save_info_dict);
@@ -260,7 +402,7 @@ public:
                 auto s = item.second.status(); bool paused = bool(s.flags & lt::torrent_flags::paused);
                 list.push_back({{"id",item.first},{"name",s.name},{"progress",s.progress},{"download",s.download_payload_rate},{"upload",s.upload_payload_rate},{"peers",s.num_peers},{"paused",paused},{"state",paused ? "已暂停" : !s.has_metadata ? "获取元数据" : s.is_seeding ? "做种中" : "下载中"},{"error",s.errc ? s.errc.message() : ""}});
             }
-            return {{"items",list}};
+            return {{"items",list},{"network",diagnostics()}};
         }
         if (op == "pause" || op == "resume") {
             auto h = task(j); h.unset_flags(lt::torrent_flags::auto_managed);

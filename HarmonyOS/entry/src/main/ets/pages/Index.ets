@@ -4,6 +4,7 @@ import picker from '@ohos.file.picker';
 import promptAction from '@ohos.promptAction';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
+import preferences from '@ohos.data.preferences';
 import { call, files, peers, bytes, TaskInfo, TorrentFile, PeerInfo } from '../model/Native';
 import { Player } from '../components/Player';
 
@@ -17,7 +18,14 @@ struct Index {
   private poll: number = -1;
   private polling: boolean = false;
   private backgroundActive: boolean = false;
+  private backgroundBusy: boolean = false;
+  private backgroundRetryAfter: number = 0;
+  private preferencesStore: preferences.Preferences | undefined = undefined;
+  private preferenceWrite: Promise<void> = Promise.resolve();
   @State allowBackground: boolean = false;
+  @State backgroundMessage: string = '后台传输未启用';
+  @State networkSummary: string = '正在读取网络状态…';
+  @State networkDetail: string = '';
   @State actionPath: string = '';
   @State newName: string = '';
   @State imagePath: string = '';
@@ -49,6 +57,10 @@ struct Index {
     this.root = context.filesDir + '/Download';
     if (!fs.accessSync(this.root)) fs.mkdirSync(this.root, true);
     try {
+      this.preferencesStore = await preferences.getPreferences(context, { name: 'btmobile-settings' });
+      this.allowBackground = (await this.preferencesStore.get('allowBackground', false)) as boolean;
+    } catch (e) { this.backgroundMessage = '无法读取后台设置：' + (e as Error).message; }
+    try {
       const result = await call({ op: 'init', root: this.root });
       this.version = result.version ?? ''; this.ready = true; this.status = '';
       await this.refresh();
@@ -61,7 +73,16 @@ struct Index {
     if (this.polling) return;
     this.polling = true;
     try {
-      this.tasks = (await call({ op: 'tasks' })).items ?? [];
+      const result = await call({ op: 'tasks' });
+      this.tasks = result.items ?? [];
+      if (result.network) {
+        const net = result.network;
+        const connection = net.networkCode !== 0 ? '网络不可用 (' + net.networkCode.toString() + ')' : net.listening ? 'BT 已监听 ' + net.listenPort.toString() : 'BT 等待监听 ' + net.configuredPort.toString();
+        this.networkSummary = connection + ' · DHT ' + net.dhtNodes.toString() + ' 节点 · Tracker 响应 ' + net.trackerReplies.toString();
+        this.networkDetail = '网络接口 ' + net.interfaces.toString() + ' · 路由 ' + net.routes.toString() + ' · Tracker 返回 Peer ' + net.trackerPeers.toString() + '\n已获取磁力元数据 ' + net.metadataReceived.toString() + ' · 网络恢复 ' + net.recoveries.toString();
+        if (net.listenError) this.networkDetail += '\n' + net.listenError;
+        if (net.trackerError) this.networkDetail += '\n' + net.trackerError;
+      }
       await this.syncBackground();
       if (this.selectedTask) this.taskFiles = await files(this.selectedTask);
       if (this.selectedTask && this.showPeers) this.peerRows = await peers(this.selectedTask);
@@ -70,9 +91,24 @@ struct Index {
     finally { this.polling = false; }
   }
   fail(e: Error): void { this.status = e.message; promptAction.showToast({ message: e.message, duration: 3000 }); }
+  setAllowBackground(value: boolean): void {
+    this.allowBackground = value;
+    this.backgroundRetryAfter = 0;
+    this.preferenceWrite = this.preferenceWrite.then(async () => {
+      const store = this.preferencesStore;
+      if (!store) throw new Error('设置存储尚未就绪');
+      await store.put('allowBackground', value); await store.flush();
+    }).catch((e: Error) => { this.fail(new Error('后台设置保存失败：' + e.message)); });
+    this.syncBackground();
+  }
   async syncBackground(): Promise<void> {
+    if (this.backgroundBusy || Date.now() < this.backgroundRetryAfter) return;
     const active = this.allowBackground && this.tasks.some((task: TaskInfo) => !task.paused);
-    if (active === this.backgroundActive) return;
+    if (active === this.backgroundActive) {
+      this.backgroundMessage = active ? '后台持续传输已获系统批准' : this.allowBackground ? '设置已保存；有活动任务时申请后台传输' : '后台传输未启用';
+      return;
+    }
+    this.backgroundBusy = true;
     const context = getContext(this) as common.UIAbilityContext;
     try {
       if (active) {
@@ -80,7 +116,12 @@ struct Index {
         await backgroundTaskManager.startBackgroundRunning(context, backgroundTaskManager.BackgroundMode.DATA_TRANSFER, agent);
       } else await backgroundTaskManager.stopBackgroundRunning(context);
       this.backgroundActive = active;
-    } catch(e) { this.allowBackground = false; this.fail(new Error('系统未批准后台传输：' + (e as Error).message)); }
+      this.backgroundMessage = active ? '后台持续传输已获系统批准' : '后台持续传输已停止';
+    } catch(e) {
+      // Keep the user's saved preference; a system denial is a separate state.
+      this.backgroundRetryAfter = Date.now() + 60000;
+      this.backgroundMessage = '设置已保存，但系统后台传输操作失败：' + (e as Error).message;
+    } finally { this.backgroundBusy = false; }
   }
   async add(): Promise<void> {
     if (!this.magnet.trim() || !this.ready) return;
@@ -170,10 +211,11 @@ struct Index {
   build() {
     Stack() {
       Column() {
-        Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.0').fontSize(13).fontColor('#888888') }.padding(20)
+        Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.1').fontSize(13).fontColor('#888888') }.padding(20)
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
         if (this.tab === 0) {
+          Text(this.networkSummary).fontSize(12).fontColor('#666666').padding({ left: 16, right: 16 })
           Row({ space: 8 }) { TextInput({ placeholder: '粘贴磁力链接', text: this.magnet }).onChange((v: string) => { this.magnet = v; }).layoutWeight(1); Button('添加').enabled(this.ready).backgroundColor('#F39A56').onClick(() => { this.add(); }) }.padding(16)
           List({ space: 12 }) {
             ForEach(this.tasks, (task: TaskInfo) => {
@@ -203,10 +245,13 @@ struct Index {
             Column({ space: 16 }) {
               Text('原生下载核心').fontSize(20).fontWeight(FontWeight.Bold)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('Peer 客户端标志：Htorrent 0.1.0').fontSize(14)
-              Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.allowBackground = value; this.syncBackground(); }) }
+              Text('Peer 客户端标志：Htorrent 0.1.1').fontSize(14)
+              Text(this.networkSummary).fontSize(14)
+              Text(this.networkDetail).fontSize(12).fontColor('#666666')
+              Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.setAllowBackground(value); }) }
+              Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
-              Text('V0.1.0 开发验证版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
+              Text('V0.1.1 下载核心验证版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
             }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
