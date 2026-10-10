@@ -23,6 +23,14 @@ Icon: exact iOS 1.2.5 AppIcon-1024.png; SHA256 7E5C5EC4C5E89C11425ECBFF6535855C2
 Backend change required: add harmonyos to existing platform whitelist in client-runtime.mjs only.
 Local backend copy: ../btmobile-subscription-server-harmony101. Original payment/DB/entitlement modules untouched.
 29 backend tests pass, including preservation of iOS/Android behavior, existing subscriptions, configuration and payment validation.
-Client policy/admission/crypto-format tests and SDK model declaration checks pass; full HAP compile and device HUKS/payment validation pending.
-No production server modification or real payment has been performed yet.
+Client policy/admission/crypto-format tests and SDK model declaration checks pass.
+Full cloud HAP build and native download/network/media/archive regression tests passed in run 38051071893.
+Built commit aa939c7765bb60ee021b185e8c6a2cde86e08722; unsigned HAP SHA256 ae51db799cfabe302fb6de39d31d6a0e8af20ddb8f83c87304fdfa2a33d2c387.
+Artifact downloaded and SHA256 checked; bundle/version, official nova13 Profile and certificate chain validation passed.
+Both packaged icon PNGs match the original iOS 1.2.5 PNG byte-for-byte.
+Additional actual-service policy test passed: subscriptionEnabled=false permits 5 new tasks without consuming quota or fabricating paid state; reenabling keeps earlier usage.
+User corrected production path to /www/wwwroot/btmobile-subscription, reported editing the whitelist and restarted btmobile-subscription via systemd at 2026-10-10 20:19:50 CST.
+Public /health subsequently verified HTTP 200, ok:true, version 1.2.4, build 125. No direct SSH deployment succeeded from this task.
+Repository was temporarily public for artifact storage and has been verified private again.
+Device HUKS identity persistence, real payment in embedded Web, and real HarmonyOS heartbeat remain installation acceptance tests. No real payment or phone installation was performed in this build turn.
 

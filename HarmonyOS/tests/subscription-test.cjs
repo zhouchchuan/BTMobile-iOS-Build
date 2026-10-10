@@ -38,6 +38,11 @@ function instance(){const state=new s.SubscriptionState(),service=new s.Subscrip
  const failed=instance();failAdd=true;await assert.rejects(failed.addTask('magnet:?valid'));assert.equal(failed.ledger.used,0);failAdd=false;
  const cannotSave=instance(),before=nativeRequests.filter(r=>r.op==='add').length;failures=1;await assert.rejects(cannotSave.addTask('magnet:?valid'));assert.equal(nativeRequests.filter(r=>r.op==='add').length,before);assert.equal(cannotSave.ledger.used,0);
  const subscribed=instance();subscribed.entitlement=claim();assert(await subscribed.addTask('magnet:?valid'));assert.equal(subscribed.ledger.used,0);
+ const policyOff=instance();policyOff.ledger.used=2;policyOff.entitlement=claim({expiresAt:0,subscriptionEnabled:false});
+ for(let i=0;i<5;i++)assert(await policyOff.addTask('magnet:?valid'));
+ assert.equal(policyOff.ledger.used,2);assert.equal(policyOff.state.subscribed,false);assert.equal(policyOff.state.unlimited,true);
+ policyOff.entitlement=claim({expiresAt:0,subscriptionEnabled:true});assert(await policyOff.addTask('magnet:?valid'));
+ assert.equal(policyOff.ledger.used,3);assert.equal(await policyOff.addTask('magnet:?valid'),false);
  const offline=instance();offline.lastRefresh=0;assert(await offline.addTask('magnet:?valid'));assert.equal(offline.ledger.used,1);assert(networkCalls>0);assert(!offline.state.online);
  const expired=instance();expired.entitlement=claim({expiresAt:now-1});assert(await expired.addTask('magnet:?valid'));assert.equal(expired.ledger.used,1);
  const locked=instance();locked.state.ready=false;await assert.rejects(locked.addTask('magnet:?valid'));assert.equal(locked.ledger.used,0);
