@@ -26,5 +26,6 @@ jobs:
         run: |
           cmake -S HarmonyOS/tests -B HarmonyOS/build-host -DCMAKE_BUILD_TYPE=Release
           cmake --build HarmonyOS/build-host -j3
+          HarmonyOS/build-host/settings-test
           TEST_DIR=$(mktemp -d)
           timeout 120 HarmonyOS/build-host/core-test "$TEST_DIR"

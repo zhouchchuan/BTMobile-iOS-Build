@@ -12,12 +12,14 @@
 #include <libtorrent/write_resume_data.hpp>
 #include <libtorrent/peer_info.hpp>
 #include <libtorrent/version.hpp>
+#include <libtorrent/ip_filter.hpp>
 #include <archive.h>
 #include <archive_entry.h>
 #include <openssl/rand.h>
 #include <nlohmann/json.hpp>
 #include <httplib.h>
 #include "range.hpp"
+#include "bt_settings.hpp"
 #ifdef BTMOBILE_OHOS
 #include "ohos_network.hpp"
 #include <hilog/log.h>
@@ -29,15 +31,25 @@
 #include <chrono>
 #include <map>
 #include <sys/stat.h>
+#include <locale.h>
 
 namespace lt = libtorrent;
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 using namespace std::chrono_literals;
 
+// libarchive converts filenames via LC_CTYPE. Apply UTF-8 only to the
+// file-operation worker, not to the process or libtorrent's threads.
+struct Utf8Locale {
+    locale_t current = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr), previous = nullptr;
+    Utf8Locale() { if (current) previous = uselocale(current); }
+    ~Utf8Locale() { if (current) { uselocale(previous); freelocale(current); } }
+};
+
 // Native calls run on the N-API worker pool. libtorrent owns its network thread.
 class Core {
     std::mutex mutex;
+    std::mutex fileOperation;
     std::unique_ptr<lt::session> session;
     fs::path root;
     std::map<std::string, lt::torrent_handle> tasks;
@@ -48,21 +60,16 @@ class Core {
     std::atomic<bool> cancelArchive{false};
     int port = 0;
     int btListenPort = 6882;
-    json networkSettings = {{"listenPort",6882},{"dht",true},{"lsd",true},{"natPmp",true},{"upnp",true},{"utp",true}};
+    json networkSettings = btmobile::defaultSettings();
+    std::set<std::string> manuallyPaused;
+    std::set<std::string> pendingDeletes;
+    std::string deletionMessage;
+    int deletionRevision = 0;
     static std::string listenAddresses(int value) {
         return "0.0.0.0:" + std::to_string(value) + ",[::]:" + std::to_string(value);
     }
     json validatedSettings(json const& changes) const {
-        if (!changes.is_object()) throw std::runtime_error("网络设置格式无效");
-        json result = networkSettings;
-        for (auto const& key : {"listenPort","dht","lsd","natPmp","upnp","utp"}) {
-            if (changes.contains(key)) result[key] = changes.at(key);
-        }
-        if (!result["listenPort"].is_number_integer()) throw std::runtime_error("BT 端口必须是整数");
-        auto value = result["listenPort"].get<int64_t>();
-        if (value < 1024 || value > 65535) throw std::runtime_error("BT 端口必须在 1024 到 65535 之间");
-        for (auto const& key : {"dht","lsd","natPmp","upnp","utp"}) if (!result[key].is_boolean()) throw std::runtime_error("网络开关必须是布尔值");
-        return result;
+        return btmobile::validateSettings(networkSettings, changes);
     }
     lt::settings_pack settingsPack() const {
         lt::settings_pack settings;
@@ -73,11 +80,39 @@ class Core {
         settings.set_bool(lt::settings_pack::enable_upnp, networkSettings.at("upnp"));
         settings.set_bool(lt::settings_pack::enable_incoming_utp, networkSettings.at("utp"));
         settings.set_bool(lt::settings_pack::enable_outgoing_utp, networkSettings.at("utp"));
+        settings.set_int(lt::settings_pack::download_rate_limit, networkSettings.at("downloadLimitKiB").get<int>() * 1024);
+        settings.set_int(lt::settings_pack::upload_rate_limit, networkSettings.at("uploadLimitKiB").get<int>() * 1024);
+        bool queue = networkSettings.at("queueEnabled");
+        settings.set_int(lt::settings_pack::active_limit, queue ? networkSettings.at("maxActive").get<int>() : -1);
+        settings.set_int(lt::settings_pack::active_downloads, queue ? networkSettings.at("maxDownloads").get<int>() : -1);
+        settings.set_int(lt::settings_pack::active_seeds, !networkSettings.at("seedEnabled").get<bool>() ? 0 : queue ? networkSettings.at("maxSeeds").get<int>() : -1);
+        settings.set_bool(lt::settings_pack::dont_count_slow_torrents, false);
+        settings.set_int(lt::settings_pack::auto_manage_interval, 1);
         return settings;
     }
+    bool managed() const { return networkSettings.at("queueEnabled").get<bool>() || !networkSettings.at("seedEnabled").get<bool>(); }
+    void persistPauses() {
+        auto path = root / ".state" / "manual-pauses.json";
+        std::ofstream out(path.string()+".tmp"); out << json(manuallyPaused).dump(); out.close();
+        if (!out) throw std::runtime_error("无法保存任务暂停状态");
+        fs::rename(path.string()+".tmp",path);
+    }
+    void applyTaskPolicy(lt::torrent_handle const& handle) {
+        if (manuallyPaused.count(id(handle))) {
+            handle.unset_flags(lt::torrent_flags::auto_managed); handle.pause();
+        } else if (managed()) {
+            // The queue owns resumption. Never force all queued tasks active.
+            handle.set_flags(lt::torrent_flags::auto_managed);
+        } else {
+            handle.unset_flags(lt::torrent_flags::auto_managed); handle.resume();
+        }
+    }
     void appendDefaultTrackers(lt::add_torrent_params& params) const {
-        // Keep explicit/private tracker URLs and order; append missing defaults.
-        for (auto const& url : trackers) if (std::find(params.trackers.begin(), params.trackers.end(), url) == params.trackers.end()) {
+        // Keep private torrents private, and preserve trackers supplied by the user.
+        if ((params.ti && params.ti->priv()) || !networkSettings.at("autoAddTrackers").get<bool>()) return;
+        auto urls = btmobile::defaultTrackers();
+        for (auto const& custom : networkSettings.at("customTrackers")) urls.push_back(custom.get<std::string>());
+        for (auto const& url : urls) if (std::find(params.trackers.begin(), params.trackers.end(), url) == params.trackers.end()) {
             params.trackers.push_back(url);
             params.tracker_tiers.resize(params.trackers.size(), 0);
         }
@@ -144,13 +179,6 @@ class Core {
         std::map<lt::piece_index_t, lt::download_priority_t> priorities;
     };
     std::map<std::string, std::shared_ptr<Stream>> streams;
-    const std::vector<std::string> trackers = {
-        "http://tracker1.linkyou.win:6969/announce", "http://tracker2.linkyou.win:6969/announce",
-        "http://tracker2v4.linkyou.win:6969/announce", "http://tracker2v6.linkyou.win:6969/announce",
-        "udp://open.stealth.si:80/announce", "udp://retracker.hotplug.ru:2710/announce",
-        "udp://tracker.torrent.eu.org:451/announce", "udp://tracker.tryhackx.org:6969/announce",
-        "udp://www.torrent.eu.org:451/announce"
-    };
     static std::string id(lt::torrent_handle const& h) {
         std::ostringstream s; s << h.info_hashes().get_best(); return s.str();
     }
@@ -163,12 +191,28 @@ class Core {
     fs::path checked(std::string const& path) {
         auto p = fs::weakly_canonical(root / path);
         auto relative = p.lexically_relative(root);
-        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..") throw std::runtime_error("不允许访问下载目录外的文件");
+        if (relative.empty() || relative == "." || relative.is_absolute() || *relative.begin() == ".." || *relative.begin() == ".state") throw std::runtime_error("不允许访问下载根目录、内部状态或下载目录外的文件");
         return p;
+    }
+    void ensureComplete(fs::path const& source) {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (auto const& task : tasks) {
+            auto info = task.second.torrent_file(); if (!info) continue;
+            auto const& layout = info->layout(); auto done = task.second.file_progress();
+            for (auto i : layout.file_range()) if (fs::weakly_canonical(root / layout.file_path(i)) == source && done[int(i)] < layout.file_size(i))
+                throw std::runtime_error("此文件尚未下载完整，请完成下载后再解压");
+        }
     }
     void saveAlerts() {
         std::vector<lt::alert*> alerts; session->pop_alerts(&alerts);
         for (auto a : alerts) {
+            if (auto deleted = lt::alert_cast<lt::torrent_deleted_alert>(a)) {
+                std::ostringstream key; key << deleted->info_hashes.get_best(); pendingDeletes.erase(key.str());
+                deletionMessage = "任务下载数据已删除"; ++deletionRevision;
+            } else if (auto failed = lt::alert_cast<lt::torrent_delete_failed_alert>(a)) {
+                std::ostringstream key; key << failed->info_hashes.get_best(); pendingDeletes.erase(key.str());
+                deletionMessage = "任务已移除，但数据未能完全删除：" + failed->error.message() + "。请在文件管理检查残留文件。"; ++deletionRevision;
+            }
             if (auto failed = lt::alert_cast<lt::listen_failed_alert>(a)) {
                 listenError = "网络监听失败：" + failed->error.message() + " (" + std::to_string(failed->error.value()) + ", op=" + std::to_string(static_cast<int>(failed->op)) + ")";
                 diagnosticLog(listenError);
@@ -262,14 +306,17 @@ class Core {
         });
     }
     json extract(json const& j) {
+        std::unique_lock<std::mutex> fileLock(fileOperation, std::try_to_lock);
+        if (!fileLock.owns_lock()) throw std::runtime_error("文件操作正在进行，请稍后重试");
         int expected = -1;
         if (!archiveProgress.compare_exchange_strong(expected, 0)) throw std::runtime_error("已有解压任务正在进行");
         struct Reset { std::atomic<int>& p; ~Reset() { p = -1; } } reset{archiveProgress};
         cancelArchive = false;
         auto source = checked(j.at("path"));
+        ensureComplete(source);
         auto destination = checked(j.at("output"));
         if (fs::exists(destination)) throw std::runtime_error("目标目录已存在，请使用新的目录名称");
-        fs::create_directories(destination);
+        Utf8Locale utf8;
         auto reader = archive_read_new();
         struct Reader { archive* a; ~Reader(){ archive_read_free(a); } } cleanup{reader};
         archive_read_support_filter_all(reader); archive_read_support_format_all(reader);
@@ -278,22 +325,45 @@ class Core {
         auto failure = [&]() -> std::runtime_error {
             std::string message = archive_error_string(reader) ? archive_error_string(reader) : "";
             std::transform(message.begin(), message.end(), message.begin(), [](unsigned char c){return std::tolower(c);});
-            if (message.find("password") != message.npos || message.find("passphrase") != message.npos || message.find("encrypted") != message.npos)
-                return std::runtime_error(password.empty() ? "此压缩包已加密，请输入密码后重试" : "密码错误或加密格式暂不支持，请检查密码");
-            return std::runtime_error("解压失败：文件损坏、分卷缺失或此格式暂不支持");
+            if (message.find("encrypt") != message.npos && message.find("not supported") != message.npos)
+                return std::runtime_error("已识别加密压缩包，但当前解压引擎不支持此加密方式；这不代表文件损坏");
+            if (message.find("password") != message.npos || message.find("passphrase") != message.npos)
+                return std::runtime_error(password.empty() ? "此压缩包已加密，请输入密码后重试" : "密码错误，请重新输入密码");
+            if (message.find("unsupported") != message.npos || message.find("not supported") != message.npos)
+                return std::runtime_error("暂不支持此压缩方式：" + message);
+            if (message.find("truncated") != message.npos || message.find("unexpected end") != message.npos)
+                return std::runtime_error("压缩包数据不完整或分卷缺失，请检查全部分卷是否齐全");
+            if (message.find("crc") != message.npos || message.find("checksum") != message.npos)
+                return std::runtime_error("压缩包校验失败：文件内容异常或密码不正确，请检查后重试");
+            return std::runtime_error("解压未完成：" + (message.empty() ? std::string("解压引擎未返回具体原因") : message));
         };
         if (archive_read_open_filename(reader, source.c_str(), 65536) != ARCHIVE_OK) throw failure();
+        fs::create_directories(destination);
         archive_entry* entry = nullptr;
         int result; auto sourceSize = fs::file_size(source);
-        while ((result = archive_read_next_header(reader, &entry)) == ARCHIVE_OK) {
+        while ((result = archive_read_next_header(reader, &entry)) != ARCHIVE_EOF) {
+            if (result != ARCHIVE_OK && result != ARCHIVE_WARN) throw failure();
+            if (!entry) throw failure();
+            // A filename conversion warning is not archive corruption. Accept it
+            // only when the engine can still provide the original UTF-8 name.
+            auto utf8Name = archive_entry_pathname_utf8(entry);
+            if (result == ARCHIVE_WARN) {
+                std::string warning = archive_error_string(reader) ? archive_error_string(reader) : "";
+                bool nameWarning = warning.find("convert") != warning.npos || warning.find("conversion") != warning.npos || warning.find("locale") != warning.npos;
+                if (!nameWarning || !utf8Name) throw failure();
+            }
             if (cancelArchive) throw std::runtime_error("解压已取消，已保留部分文件");
-            std::string name = archive_entry_pathname(entry) ? archive_entry_pathname(entry) : "";
+            auto nativeName = archive_entry_pathname(entry);
+            std::string name = utf8Name ? utf8Name : nativeName ? nativeName : "";
             if (!safeArchivePath(name) || archive_entry_symlink(entry) || archive_entry_hardlink(entry)) throw std::runtime_error("压缩包含有不安全路径，已停止解压");
+            std::replace(name.begin(),name.end(),'\\','/');
             auto output = destination / name;
             if (archive_entry_filetype(entry) == AE_IFDIR) fs::create_directories(output);
             else if (archive_entry_filetype(entry) == AE_IFREG) {
                 fs::create_directories(output.parent_path());
+                if (fs::exists(output)) throw std::runtime_error("压缩包含有重复文件名，已停止以免覆盖文件");
                 std::ofstream f(output, std::ios::binary); char buffer[65536]; la_ssize_t n;
+                if (!f) throw std::runtime_error("无法创建解压文件，请检查空间与文件名");
                 while ((n = archive_read_data(reader, buffer, sizeof buffer)) > 0) {
                     if (cancelArchive) throw std::runtime_error("解压已取消，已保留部分文件");
                     f.write(buffer, n); if (!f) throw std::runtime_error("无法写入文件，请检查剩余空间");
@@ -318,12 +388,12 @@ public:
                 if (input) { json saved; input >> saved; networkSettings = validatedSettings(saved); btListenPort = networkSettings.at("listenPort"); }
             } catch (...) { diagnosticLog("invalid saved network settings; using defaults"); }
             lt::settings_pack settings = settingsPack();
-            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.1");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0110-");
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.2");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0120-");
             // 6882 (or the user's port) is a preference, not a restriction.
             // Preserve libtorrent's port retries, OS fallback, IPv4/IPv6 peer
             // discovery, outgoing ephemeral ports and NAT mapping negotiation.
-            settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(static_cast<std::uint32_t>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht)));
+            settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(static_cast<std::uint32_t>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht | lt::alert_category::storage)));
             settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881");
 #ifdef BTMOBILE_OHOS
             network = btmobile_ohos::snapshot(); networkIdentity = network.identity;
@@ -331,14 +401,28 @@ public:
             diagnosticLog("NetworkKit init: code=" + std::to_string(network.code) + " interfaces=" + std::to_string(network.interfaces.size()) + " routes=" + std::to_string(network.routes.size()));
 #endif
             session = std::make_unique<lt::session>(settings);
+            // All peer addresses share the global limit, including LAN peers.
+            lt::ip_filter classes;
+            auto globalClass = 1u << static_cast<unsigned>(lt::session::global_peer_class_id);
+            classes.add_rule(lt::make_address("0.0.0.0"),lt::make_address("255.255.255.255"),globalClass);
+            classes.add_rule(lt::make_address("::"),lt::make_address("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),globalClass);
+            session->set_peer_class_filter(classes);
+            bool havePauseSettings = false;
+            try {
+                std::ifstream saved(root / ".state" / "manual-pauses.json");
+                if (saved) { json pauses; saved >> pauses; manuallyPaused = pauses.get<std::set<std::string>>(); havePauseSettings = true; }
+            } catch (...) { diagnosticLog("invalid pause settings; resume file flags retained"); }
             for (auto const& file : fs::directory_iterator(root / ".state")) {
                 if (file.path().extension() != ".resume") continue;
                 try {
                     std::ifstream f(file.path(), std::ios::binary); std::vector<char> bytes((std::istreambuf_iterator<char>(f)),{});
                     lt::error_code ec; auto params = lt::read_resume_data(bytes, ec); if (ec) continue;
-                    params.save_path = root.string(); params.flags &= ~lt::torrent_flags::auto_managed;
+                    params.save_path = root.string();
+                    bool userPaused = bool(params.flags & lt::torrent_flags::paused) && !(params.flags & lt::torrent_flags::auto_managed);
                     appendDefaultTrackers(params);
-                    auto h = session->add_torrent(params, ec); if (!ec) tasks[id(h)] = h;
+                    auto h = session->add_torrent(params, ec); if (!ec) {
+                        tasks[id(h)] = h; if (!havePauseSettings && userPaused) manuallyPaused.insert(id(h)); applyTaskPolicy(h);
+                    }
                 } catch (...) { /* Corrupt resume files do not discard other tasks. */ }
             }
             http.Get(R"(/stream/.*)", [this](auto const& req, auto& res){ serve(req,res); });
@@ -364,7 +448,7 @@ public:
         if (!session) throw std::runtime_error("下载核心尚未启动");
         if (op == "getNetworkSettings") {
             std::lock_guard<std::mutex> l(mutex);
-            return {{"settings",networkSettings}};
+            return {{"settings",networkSettings},{"defaultTrackers",btmobile::defaultTrackers()}};
         }
         if (op == "setListenPort" || op == "setNetworkSettings") {
             // Stable settings API: partial updates, validation, atomic persistence.
@@ -381,6 +465,7 @@ public:
                 if (portChanged) listenError.clear();
                 if (portChanged || !networkSettings.at("dht").get<bool>()) dhtSamples.clear();
                 session->apply_settings(settingsPack());
+                for (auto const& item : tasks) applyTaskPolicy(item.second);
             }
             return {{"ok",true},{"port",btListenPort},{"settings",networkSettings}};
         }
@@ -390,8 +475,11 @@ public:
             else p = lt::load_torrent_file(checked(uri).string());
             if (ec) throw std::runtime_error("磁力链接或种子文件无效");
             p.save_path = root.string(); p.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
+            std::lock_guard<std::mutex> l(mutex);
+            if (!pendingDeletes.empty()) throw std::runtime_error("正在删除下载数据，请稍后再添加任务");
+            if (managed()) p.flags |= lt::torrent_flags::auto_managed | lt::torrent_flags::paused;
             appendDefaultTrackers(p);
-            std::lock_guard<std::mutex> l(mutex); auto h = session->add_torrent(p,ec);
+            auto h = session->add_torrent(p,ec);
             if (ec) throw std::runtime_error(ec.message());
             tasks[id(h)] = h; h.save_resume_data(lt::torrent_handle::save_info_dict);
             return {{"id",id(h)}};
@@ -400,25 +488,72 @@ public:
             json list = json::array(); std::lock_guard<std::mutex> l(mutex);
             for (auto const& item: tasks) {
                 auto s = item.second.status(); bool paused = bool(s.flags & lt::torrent_flags::paused);
-                list.push_back({{"id",item.first},{"name",s.name},{"progress",s.progress},{"download",s.download_payload_rate},{"upload",s.upload_payload_rate},{"peers",s.num_peers},{"paused",paused},{"state",paused ? "已暂停" : !s.has_metadata ? "获取元数据" : s.is_seeding ? "做种中" : "下载中"},{"error",s.errc ? s.errc.message() : ""}});
+                bool manual = manuallyPaused.count(item.first) != 0;
+                bool checking = s.state == lt::torrent_status::checking_files || s.state == lt::torrent_status::checking_resume_data;
+                double progress = s.total_wanted > 0 ? std::clamp(double(s.total_wanted_done) / double(s.total_wanted),0.0,1.0) : s.has_metadata && s.is_finished ? 1.0 : 0.0;
+                std::string state = s.errc ? "任务错误" : manual ? "已暂停" : paused ? "等待队列" : checking ? "校验文件中" : !s.has_metadata ? "获取元数据" : s.is_finished ? "做种中" : "下载中";
+                if (!manual && s.is_finished && !networkSettings.at("seedEnabled").get<bool>()) state = "已完成（做种已关闭）";
+                list.push_back({{"id",item.first},{"name",s.name},{"progress",progress},{"done",s.total_wanted_done},{"total",s.total_wanted},
+                    {"checking",checking},{"checkProgress",s.progress},{"download",s.download_payload_rate},{"upload",s.upload_payload_rate},
+                    {"peers",s.num_peers},{"paused",manual},{"active",!paused},{"state",state},{"error",s.errc ? s.errc.message() : ""}});
             }
-            return {{"items",list},{"network",diagnostics()}};
+            return {{"items",list},{"network",diagnostics()},{"deletionMessage",deletionMessage},{"deletionRevision",deletionRevision}};
         }
         if (op == "pause" || op == "resume") {
-            auto h = task(j); h.unset_flags(lt::torrent_flags::auto_managed);
-            if (op == "pause") h.pause(); else h.resume();
+            auto h = task(j); std::lock_guard<std::mutex> lock(mutex);
+            auto previous = manuallyPaused;
+            if (op == "pause") manuallyPaused.insert(id(h)); else manuallyPaused.erase(id(h));
+            try { persistPauses(); } catch (...) { manuallyPaused = previous; throw; }
+            applyTaskPolicy(h);
             h.save_resume_data(lt::torrent_handle::save_info_dict); return {{"ok",true}};
         }
         if (op == "remove") {
             auto h=task(j); auto key=id(h);
+            bool deleteData = j.value("deleteData", false);
+            std::unique_lock<std::mutex> fileLock(fileOperation, std::try_to_lock);
+            if (!fileLock.owns_lock()) throw std::runtime_error("文件操作正在进行，暂不能移除任务");
             std::lock_guard<std::mutex> l(mutex);
+            if (deleteData) {
+                auto info = h.torrent_file(); std::set<fs::path> owned;
+                if (info) for (auto i : info->layout().file_range()) owned.insert(fs::weakly_canonical(root / info->layout().file_path(i)));
+                for (auto const& other : tasks) if (other.first != key) {
+                    auto otherInfo = other.second.torrent_file(); if (!otherInfo) continue;
+                    for (auto i : otherInfo->layout().file_range()) if (owned.count(fs::weakly_canonical(root / otherInfo->layout().file_path(i))))
+                        throw std::runtime_error("这些文件仍被其他任务共用，请选择仅移除任务以免影响其他下载");
+                }
+            }
             for(auto it=streams.begin();it!=streams.end();) {
                 if(it->second->handle==h){restorePriorities(it->second);it=streams.erase(it);}else ++it;
             }
-            tasks.erase(key);session->remove_torrent(h); // Keep user payload files.
+            auto previous = manuallyPaused; manuallyPaused.erase(key);
+            try { persistPauses(); } catch (...) { manuallyPaused = previous; throw; }
+            tasks.erase(key);
+            if (deleteData) pendingDeletes.insert(key);
+            // libtorrent stops I/O before deleting only files owned by this torrent.
+            session->remove_torrent(h, deleteData ? lt::session::delete_files : lt::remove_flags_t{});
             fs::remove(root/".state"/(key+".resume"));
             fs::remove(root/".state"/(key+".resume.tmp"));
-            return {{"ok",true}};
+            return {{"ok",true},{"deletingData",deleteData}};
+        }
+        if (op == "deleteFile") {
+            std::unique_lock<std::mutex> fileLock(fileOperation, std::try_to_lock);
+            if (!fileLock.owns_lock()) throw std::runtime_error("压缩或解压正在进行，请完成或取消后再删除文件");
+            auto source = checked(j.at("path"));
+            if (!fs::exists(source)) throw std::runtime_error("文件已不存在，请刷新列表");
+            if (fs::is_symlink(root / j.at("path").get<std::string>())) throw std::runtime_error("不支持删除符号链接");
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!pendingDeletes.empty()) throw std::runtime_error("正在清理任务数据，请稍后再删除文件");
+            for (auto const& task : tasks) {
+                auto info = task.second.torrent_file(); if (!info) continue;
+                for (auto i : info->layout().file_range()) {
+                    auto path = fs::weakly_canonical(root / info->layout().file_path(i));
+                    auto relative = path.lexically_relative(source);
+                    if (path == source || (!relative.empty() && !relative.is_absolute() && *relative.begin() != ".."))
+                        throw std::runtime_error("此文件仍属于下载任务，请在任务详情选择“移除任务并删除数据”，或先仅移除任务");
+                }
+            }
+            auto removed = fs::remove_all(source);
+            return {{"ok",true},{"removed",removed}};
         }
         if (op == "peers") {
             auto h=task(j);std::vector<lt::peer_info> peers;h.get_peer_info(peers);json list=json::array();
@@ -457,6 +592,9 @@ public:
             return {{"id",""},{"complete",true}};
         }
         if (op == "compress") {
+            std::unique_lock<std::mutex> fileLock(fileOperation, std::try_to_lock);
+            if (!fileLock.owns_lock()) throw std::runtime_error("文件操作正在进行，请稍后重试");
+            Utf8Locale utf8;
             int expected = -1;
             if (!archiveProgress.compare_exchange_strong(expected, 0)) throw std::runtime_error("已有压缩或解压任务正在进行");
             struct Reset { std::atomic<int>& p; ~Reset(){p=-1;} } reset{archiveProgress};
@@ -475,11 +613,12 @@ public:
             auto writer=archive_write_new();
             struct Writer { archive* a; ~Writer(){archive_write_free(a);} } cleanup{writer};
             archive_write_set_format_zip(writer);
+            // Names supplied by ArkTS are UTF-8, not the process C locale.
             if(archive_write_open_filename(writer,output.c_str())!=ARCHIVE_OK)throw std::runtime_error("无法创建 ZIP 文件");
             for(auto const& p:inputs) {
                 auto entry=archive_entry_new();
                 std::string name=p.lexically_relative(source.parent_path()).generic_string();
-                archive_entry_set_pathname(entry,name.c_str());archive_entry_set_size(entry,fs::file_size(p));
+                archive_entry_set_pathname_utf8(entry,name.c_str());archive_entry_set_size(entry,fs::file_size(p));
                 archive_entry_set_filetype(entry,AE_IFREG);archive_entry_set_perm(entry,0600);
                 int status=archive_write_header(writer,entry);archive_entry_free(entry);
                 if(status!=ARCHIVE_OK)throw std::runtime_error("ZIP 文件头写入失败");

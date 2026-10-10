@@ -5,8 +5,10 @@ import promptAction from '@ohos.promptAction';
 import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
 import wantAgent from '@ohos.app.ability.wantAgent';
 import preferences from '@ohos.data.preferences';
-import { call, files, peers, bytes, TaskInfo, TorrentFile, PeerInfo } from '../model/Native';
+import { call, files, peers, bytes, TaskInfo, TaskState, TorrentFile, PeerInfo } from '../model/Native';
 import { Player } from '../components/Player';
+import { TaskCard } from '../components/TaskCard';
+import { SettingsPanel } from '../components/SettingsPanel';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number }
 interface TextPart { value: string; link: boolean }
@@ -17,6 +19,10 @@ struct Index {
   private root: string = '';
   private poll: number = -1;
   private polling: boolean = false;
+  private detailPolling: boolean = false;
+  private deletionRevision: number = 0;
+  private pageVisible: boolean = false;
+  @StorageLink('btmobileForeground') @Watch('foregroundChanged') foreground: boolean = true;
   private backgroundActive: boolean = false;
   private backgroundBusy: boolean = false;
   private backgroundRetryAfter: number = 0;
@@ -32,7 +38,7 @@ struct Index {
   @State ready: boolean = false;
   @State tab: number = 0;
   @State version: string = '';
-  @State tasks: TaskInfo[] = [];
+  @State tasks: TaskState[] = [];
   @State magnet: string = '';
   @State status: string = '正在启动原生下载核心…';
   @State current: string = '';
@@ -51,8 +57,11 @@ struct Index {
   @State password: string = '';
   @State extracting: boolean = false;
   @State percent: number = 0;
+  @State archiveError: string = '';
+  @State removeTaskId: string = '';
 
   async aboutToAppear(): Promise<void> {
+    this.pageVisible = true;
     const context = getContext(this) as common.UIAbilityContext;
     this.root = context.filesDir + '/Download';
     if (!fs.accessSync(this.root)) fs.mkdirSync(this.root, true);
@@ -64,17 +73,27 @@ struct Index {
       const result = await call({ op: 'init', root: this.root });
       this.version = result.version ?? ''; this.ready = true; this.status = '';
       await this.refresh();
-      this.poll = setInterval(() => { this.refresh(); }, 1000);
+      if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
     } catch (e) { this.status = '核心启动失败：' + (e as Error).message; }
     this.list();
   }
-  aboutToDisappear(): void { clearInterval(this.poll); }
+  aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; }
+  foregroundChanged(): void { if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
   async refresh(): Promise<void> {
     if (this.polling) return;
     this.polling = true;
     try {
       const result = await call({ op: 'tasks' });
-      this.tasks = result.items ?? [];
+      if (!this.pageVisible) return;
+      const old = this.tasks;
+      if ((result.deletionRevision ?? 0) > this.deletionRevision) {
+        this.deletionRevision = result.deletionRevision ?? 0;
+        this.status = result.deletionMessage ?? ''; this.list();
+      }
+      this.tasks = (result.items ?? []).map((value: TaskInfo): TaskState => {
+        const row = old.find((item: TaskState) => item.id === value.id) ?? new TaskState();
+        row.update(value); return row;
+      });
       if (result.network) {
         const net = result.network;
         const connection = net.networkCode !== 0 ? '网络不可用 (' + net.networkCode.toString() + ')' : net.listening ? 'BT 已监听 ' + net.listenPort.toString() : 'BT 等待监听 ' + net.configuredPort.toString();
@@ -83,14 +102,30 @@ struct Index {
         if (net.listenError) this.networkDetail += '\n' + net.listenError;
         if (net.trackerError) this.networkDetail += '\n' + net.trackerError;
       }
-      await this.syncBackground();
-      if (this.selectedTask) this.taskFiles = await files(this.selectedTask);
-      if (this.selectedTask && this.showPeers) this.peerRows = await peers(this.selectedTask);
-      if (this.extracting) this.percent = (await call({ op: 'archiveProgress' })).percent ?? 0;
+      // OS authorization and file/Peer detail calls must not block task refresh.
+      this.syncBackground();
+      this.refreshDetails();
     } catch (e) { this.status = (e as Error).message; }
     finally { this.polling = false; }
   }
   fail(e: Error): void { this.status = e.message; promptAction.showToast({ message: e.message, duration: 3000 }); }
+  async refreshDetails(): Promise<void> {
+    if (this.detailPolling) return;
+    this.detailPolling = true;
+    try {
+      if (this.extracting) this.percent = Math.max(0, (await call({ op: 'archiveProgress' })).percent ?? 0);
+      const selected = this.selectedTask;
+      if (selected) {
+        const items = await files(selected);
+        if (this.selectedTask === selected) this.taskFiles = items;
+        if (this.showPeers && this.selectedTask === selected) {
+          const rows = await peers(selected);
+          if (this.selectedTask === selected && this.showPeers) this.peerRows = rows;
+        }
+      }
+    } catch(e) { this.status = (e as Error).message; }
+    finally { this.detailPolling = false; }
+  }
   setAllowBackground(value: boolean): void {
     this.allowBackground = value;
     this.backgroundRetryAfter = 0;
@@ -103,7 +138,7 @@ struct Index {
   }
   async syncBackground(): Promise<void> {
     if (this.backgroundBusy || Date.now() < this.backgroundRetryAfter) return;
-    const active = this.allowBackground && this.tasks.some((task: TaskInfo) => !task.paused);
+    const active = this.allowBackground && this.tasks.some((task: TaskState) => task.active);
     if (active === this.backgroundActive) {
       this.backgroundMessage = active ? '后台持续传输已获系统批准' : this.allowBackground ? '设置已保存；有活动任务时申请后台传输' : '后台传输未启用';
       return;
@@ -174,7 +209,7 @@ struct Index {
       } else if (['png','jpg','jpeg','webp','gif'].includes(extension)) {
         this.imagePath = this.root + '/' + item.path;
       } else if (['zip','7z','rar','tar','gz','xz','bz2','001'].includes(extension)) {
-        this.archivePath = item.path; this.password = '';
+        this.archivePath = item.path; this.password = ''; this.archiveError = ''; this.percent = 0;
       } else if (['mp4','mkv','avi','mov','webm','m4v','mp3','flac','m4a','aac','ogg'].includes(extension)) {
         const match = await call({ op: 'resolve', path: item.path });
         if (match.id && !match.complete) {
@@ -192,12 +227,40 @@ struct Index {
     } catch(e) { this.fail(e as Error); }
   }
   async extract(): Promise<void> {
-    this.extracting = true; this.percent = 0;
+    if (this.extracting || !this.archivePath) return;
+    this.extracting = true; this.percent = 0; this.archiveError = '';
     try {
       await call({ op: 'extract', path: this.archivePath, output: this.archivePath + '-解压-' + Date.now().toString(), password: this.password });
       this.archivePath = ''; this.password = ''; this.list(); promptAction.showToast({ message: '解压完成' });
-    } catch(e) { this.fail(e as Error); }
+    } catch(e) { this.archiveError = (e as Error).message; this.list(); }
     finally { this.extracting = false; }
+  }
+  async removeTask(deleteData: boolean): Promise<void> {
+    const id = this.removeTaskId;
+    if (!id) return;
+    try {
+      await call({ op: 'remove', id: id, deleteData: deleteData });
+      if (this.selectedTask === id) this.selectedTask = '';
+      this.removeTaskId = ''; await this.refresh(); this.list();
+      promptAction.showToast({ message: deleteData ? '任务已移除，正在清理该任务下载的数据' : '任务已移除，下载文件已保留' });
+    } catch(e) { this.fail(e as Error); }
+  }
+  confirmDeleteTask(): void {
+    AlertDialog.show({ title: '删除任务及下载数据？', message: '将停止此任务并删除它下载的文件。此操作无法撤销；该目录中其他文件和已解压的文件不在清理范围内。',
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '删除任务和数据', action: () => { this.removeTask(true); } } });
+  }
+  confirmDeleteFile(): void {
+    const path = this.actionPath;
+    AlertDialog.show({ title: '删除文件或文件夹？', message: path + '\n文件夹中的内容也会删除，且无法撤销。仍属于下载任务的文件，请从任务管理中删除。',
+      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '删除', action: async () => {
+        try { await call({ op: 'deleteFile', path: path }); this.actionPath = ''; this.list(); promptAction.showToast({ message: '已删除' }); }
+        catch(e) { this.fail(e as Error); }
+      } } });
+  }
+  @Builder
+  swipeRemove(id: string) {
+    Button('移除').backgroundColor('#D83B35').margin(8).onClick(() => { this.removeTaskId = id; })
   }
   icon(item: FileItem): string {
     if (item.directory) return '📁';
@@ -211,27 +274,19 @@ struct Index {
   build() {
     Stack() {
       Column() {
-        Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.1').fontSize(13).fontColor('#888888') }.padding(20)
+        Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.2').fontSize(13).fontColor('#888888') }.padding(20)
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
         if (this.tab === 0) {
           Text(this.networkSummary).fontSize(12).fontColor('#666666').padding({ left: 16, right: 16 })
           Row({ space: 8 }) { TextInput({ placeholder: '粘贴磁力链接', text: this.magnet }).onChange((v: string) => { this.magnet = v; }).layoutWeight(1); Button('添加').enabled(this.ready).backgroundColor('#F39A56').onClick(() => { this.add(); }) }.padding(16)
           List({ space: 12 }) {
-            ForEach(this.tasks, (task: TaskInfo) => {
+            ForEach(this.tasks, (task: TaskState) => {
               ListItem() {
-                Column({ space: 8 }) {
-                  Row() {
-                    Text(task.name || task.id).fontSize(17).fontWeight(FontWeight.Medium).maxLines(2).layoutWeight(1).onClick(async () => { this.selectedTask = task.id; this.taskFiles = await files(task.id); })
-                    Button(task.paused ? '继续' : '暂停').onClick(async () => { try { await call({ op: task.paused ? 'resume' : 'pause', id: task.id }); await this.refresh(); } catch(e) { this.fail(e as Error); } })
-                  }
-                  Progress({ value: task.progress * 100, total: 100, type: ProgressType.Linear }).color('#F39A56')
-                  Row() { Text(task.state + ' · ' + (task.progress * 100).toFixed(1) + '%').layoutWeight(1); Text('Peer ' + task.peers.toString()) }
-                  Text('↓ ' + bytes(task.download) + '/s     ↑ ' + bytes(task.upload) + '/s').fontSize(13).fontColor('#666666').width('100%')
-                  if (task.error) { Text(task.error).fontColor(Color.Red).fontSize(12) }
-                }.padding(16).borderRadius(20).backgroundColor(Color.White)
-              }
-            }, (t: TaskInfo) => t.id)
+                TaskCard({ task: task, onOpen: (id: string) => { this.selectedTask = id; this.refreshDetails(); },
+                  onPause: async (id: string, paused: boolean) => { try { await call({ op: paused ? 'resume' : 'pause', id: id }); await this.refresh(); } catch(e) { this.fail(e as Error); } } })
+              }.swipeAction({ end: this.swipeRemove.bind(this, task.id) })
+            }, (t: TaskState) => t.id)
           }.layoutWeight(1).padding({ left: 16, right: 16 })
         } else if (this.tab === 1) {
           Row() { Button('上一级').enabled(this.current.length > 0).onClick(() => { this.current = this.current.split('/').slice(0,-1).join('/'); this.list(); }); Text(this.current || '下载目录').fontSize(14).layoutWeight(1).padding(10); Button('导入').onClick(() => { this.importFile(); }); Button('刷新').onClick(() => { this.list(); }) }.padding(12)
@@ -245,13 +300,14 @@ struct Index {
             Column({ space: 16 }) {
               Text('原生下载核心').fontSize(20).fontWeight(FontWeight.Bold)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('Peer 客户端标志：Htorrent 0.1.1').fontSize(14)
+              Text('Peer 客户端标志：Htorrent 0.1.2').fontSize(14)
               Text(this.networkSummary).fontSize(14)
               Text(this.networkDetail).fontSize(12).fontColor('#666666')
               Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.setAllowBackground(value); }) }
               Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
-              Text('V0.1.1 下载核心验证版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
+              SettingsPanel({ onSaved: () => { this.refresh(); } })
+              Text('V0.1.2 调试版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
             }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
@@ -269,7 +325,7 @@ struct Index {
           Row({ space: 12 }) {
             Button(this.showPeers ? '收起 Peer' : '查看 Peer').onClick(async () => { this.showPeers = !this.showPeers; if(this.showPeers) this.peerRows = await peers(this.selectedTask); })
             Button('移除任务').onClick(() => {
-              AlertDialog.show({ title: '移除任务', message: '停止此任务并移除记录，已经下载的文件仍然保留。', primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '移除', action: async () => { try { await call({ op: 'remove', id: this.selectedTask }); this.selectedTask = ''; await this.refresh(); } catch(e) { this.fail(e as Error); } } } });
+              this.removeTaskId = this.selectedTask;
             })
           }
           if (this.showPeers) {
@@ -300,13 +356,16 @@ struct Index {
         }.width('100%').height('100%').backgroundColor(Color.White)
       }
       if (this.archivePath) {
+        Scroll() {
         Column({ space: 16 }) {
           Text('解压压缩包').fontSize(20).fontWeight(FontWeight.Bold)
           Text('如已加密，请输入密码；未加密可留空。').fontSize(14)
           TextInput({ placeholder: '解压密码（可选）', text: this.password }).type(InputType.Password).enabled(!this.extracting).onChange((v: string) => { this.password = v; })
+          if (this.archiveError) { Text(this.archiveError).fontColor('#B54020').fontSize(14).width('100%'); Text('失败后可修改密码重试；已写出的部分文件会保留在对应解压目录。').fontSize(12) }
           if (this.extracting) { Progress({ value: Math.max(0,this.percent), total: 100 }); Text('解压中 ' + Math.max(0,this.percent).toString() + '%') }
           Row({ space: 16 }) { Button('取消').onClick(() => { if(this.extracting) call({ op: 'cancelArchive' }); else this.archivePath = ''; }); Button('解压').enabled(!this.extracting).onClick(() => { this.extract(); }) }
-        }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
+        }.padding(24).width('100%')
+        }.width('90%').constraintSize({ maxHeight: '80%' }).backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
       }
       if (this.actionPath) {
         Column({ space: 16 }) {
@@ -327,6 +386,7 @@ struct Index {
             catch(e) { this.fail(e as Error); } finally { this.extracting = false; }
           })
           Text('正在下载或做种的文件请勿重命名，以免任务找不到文件。').fontSize(12).fontColor('#BB4B18')
+          Button('删除文件 / 文件夹').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteFile(); })
           Button('取消').onClick(() => { this.actionPath = ''; })
         }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24)
       }
@@ -335,6 +395,15 @@ struct Index {
       }
       if (this.playerSource) {
         Player({ source: this.playerSource, title: this.playerTitle, onClose: () => { this.playerSource = ''; call({ op: 'stopStream' }); } })
+      }
+      if (this.removeTaskId) {
+        Column({ space: 18 }) {
+          Text('移除任务').fontSize(20).fontWeight(FontWeight.Bold)
+          Text(this.tasks.find((task: TaskState) => task.id === this.removeTaskId)?.name ?? '当前任务').maxLines(3).fontSize(14)
+          Button('仅移除任务，保留文件').onClick(() => { this.removeTask(false); })
+          Button('移除任务并删除下载数据').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteTask(); })
+          Button('取消').onClick(() => { this.removeTaskId = ''; })
+        }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
       }
     }.width('100%').height('100%')
   }

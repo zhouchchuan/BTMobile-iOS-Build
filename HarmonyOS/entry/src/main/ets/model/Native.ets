@@ -1,10 +1,21 @@
 import * as native from 'libbtmobile.so';
 
-export interface TaskInfo { id: string; name: string; progress: number; download: number; upload: number; peers: number; paused: boolean; state: string; error: string }
+export interface TaskInfo { id: string; name: string; progress: number; done: number; total: number; checking: boolean; checkProgress: number; download: number; upload: number; peers: number; paused: boolean; active: boolean; state: string; error: string }
+@Observed
+export class TaskState implements TaskInfo {
+  id: string = ''; name: string = ''; progress: number = 0; done: number = 0; total: number = 0;
+  checking: boolean = false; checkProgress: number = 0; download: number = 0; upload: number = 0;
+  peers: number = 0; paused: boolean = false; active: boolean = false; state: string = ''; error: string = '';
+  update(value: TaskInfo): void {
+    this.id = value.id; this.name = value.name; this.progress = value.progress; this.done = value.done; this.total = value.total;
+    this.checking = value.checking; this.checkProgress = value.checkProgress; this.download = value.download; this.upload = value.upload;
+    this.peers = value.peers; this.paused = value.paused; this.active = value.active; this.state = value.state; this.error = value.error;
+  }
+}
 export interface TorrentFile { index: number; name: string; size: number; done: number }
 export interface NetworkInfo { listening: boolean; listenPort: number; configuredPort: number; dhtNodes: number; trackerReplies: number; trackerPeers: number; metadataReceived: number; listenError: string; trackerError: string; networkCode: number; interfaces: number; routes: number; recoveries: number }
-export interface NetworkSettings { listenPort?: number; dht?: boolean; lsd?: boolean; natPmp?: boolean; upnp?: boolean; utp?: boolean }
-export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[]; network?: NetworkInfo; port?: number; settings?: NetworkSettings }
+export interface NetworkSettings { listenPort?: number; dht?: boolean; lsd?: boolean; natPmp?: boolean; upnp?: boolean; utp?: boolean; downloadLimitKiB?: number; uploadLimitKiB?: number; queueEnabled?: boolean; maxActive?: number; maxDownloads?: number; maxSeeds?: number; seedEnabled?: boolean; autoAddTrackers?: boolean; customTrackers?: string[] }
+export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[]; network?: NetworkInfo; port?: number; settings?: NetworkSettings; defaultTrackers?: string[]; deletingData?: boolean; deletionMessage?: string; deletionRevision?: number }
 export interface FileResult { items: TorrentFile[] }
 export interface PeerInfo { address: string; client: string; download: number; upload: number; progress: number }
 interface PeerResult { items: PeerInfo[] }
@@ -19,6 +30,7 @@ export interface Request {
   password?: string;
   port?: number;
   settings?: NetworkSettings;
+  deleteData?: boolean;
 }
 export async function call(request: Request): Promise<NativeResult> {
   return JSON.parse(await native.invoke(JSON.stringify(request))) as NativeResult;

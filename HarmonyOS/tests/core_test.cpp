@@ -95,7 +95,20 @@ int main(int argc,char** argv) {
     assert(net.at("listenPort").get<int>() > 0 && net.at("listenPort") != 6882);
     std::ifstream downloaded(scratch/"download"/"fixture.bin",std::ios::binary);
     std::string actual((std::istreambuf_iterator<char>(downloaded)),{}); assert(actual==payload);
+    auto completed = core.call({{"op","tasks"}})["items"][0];
+    assert(completed["done"] == payload.size() && completed["total"] == payload.size());
+    core.call({{"op","setNetworkSettings"},{"settings",{{"queueEnabled",true},{"maxSeeds",0},{"maxActive",2},{"downloadLimitKiB",512},{"uploadLimitKiB",256}}}});
+    bool queued = false;
+    for (int i=0;i<100;++i) {
+        auto task = core.call({{"op","tasks"}})["items"][0];
+        if (!task["active"].get<bool>() && !task["paused"].get<bool>()) { queued = true; break; }
+        std::this_thread::sleep_for(100ms);
+    }
+    assert(queued); // Queued and manually paused are different states.
     core.call({{"op","pause"},{"id",hash}}); std::this_thread::sleep_for(250ms);
+    assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
+    core.call({{"op","setNetworkSettings"},{"settings",{{"queueEnabled",false},{"seedEnabled",true}}}});
+    std::this_thread::sleep_for(250ms);
     assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
     auto stream=core.call({{"op","stream"},{"id",hash},{"index",0}});
     std::string url=stream.at("url"); auto slash=url.find('/',7);
@@ -107,6 +120,28 @@ int main(int argc,char** argv) {
     core.call({{"op","extract"},{"path","fixture.zip"},{"output","expanded"}});
     std::ifstream extracted(scratch/"download"/"expanded"/"fixture.bin",std::ios::binary);
     std::string roundtrip((std::istreambuf_iterator<char>(extracted)),{});assert(roundtrip==payload);
+    fs::create_directories(scratch/"download"/u8"中文样例");
+    { std::ofstream f(scratch/"download"/u8"中文样例"/u8"说明.txt"); f << u8"UTF-8 文本与链接 https://example.org/"; }
+    { std::ofstream f(scratch/"download"/u8"中文样例"/u8"图片.jpg",std::ios::binary); f.write(payload.data(),128); }
+    core.call({{"op","compress"},{"path",u8"中文样例"},{"output","unicode.zip"}});
+    core.call({{"op","extract"},{"path","unicode.zip"},{"output","unicode-output"}});
+    assert(fs::file_size(scratch/"download"/"unicode-output"/u8"中文样例"/u8"图片.jpg") == 128);
+    std::ifstream text(scratch/"download"/"unicode-output"/u8"中文样例"/u8"说明.txt");
+    assert(std::string((std::istreambuf_iterator<char>(text)),{}) == u8"UTF-8 文本与链接 https://example.org/");
+    { std::ofstream f(scratch/"download"/"invalid.zip"); f << "not an archive"; }
+    bool badArchive = false;
+    try { core.call({{"op","extract"},{"path","invalid.zip"},{"output","invalid-output"}}); }
+    catch(std::exception const&) { badArchive = true; }
+    assert(badArchive && core.call({{"op","archiveProgress"}})["percent"] == -1);
+    core.call({{"op","extract"},{"path","unicode.zip"},{"output","retry-output"}});
+    assert(fs::exists(scratch/"download"/"retry-output"/u8"中文样例"/u8"说明.txt"));
+    for (auto path : {".",".state","../seed","fixture.bin"}) {
+        bool blocked = false;
+        try { core.call({{"op","deleteFile"},{"path",path}}); } catch(std::exception const&) { blocked = true; }
+        assert(blocked);
+    }
+    core.call({{"op","deleteFile"},{"path","unicode-output"}});
+    assert(!fs::exists(scratch/"download"/"unicode-output") && fs::exists(scratch/"download"/"unicode.zip"));
     auto configured = core.call({{"op","setNetworkSettings"},{"settings",{{"utp",false}}}});
     assert(configured["settings"]["utp"] == false && configured["settings"]["listenPort"] == 6882);
     std::ifstream saved(scratch/"download"/".state"/"network.json"); json savedSettings; saved >> savedSettings;
@@ -115,5 +150,11 @@ int main(int argc,char** argv) {
     assert(core.call({{"op","getNetworkSettings"}})["settings"]["listenPort"] == 49182);
     { std::ifstream changed(scratch/"download"/".state"/"network.json"); changed >> savedSettings; }
     assert(savedSettings["listenPort"] == 49182);
-    std::cout << "PASS: HTTP tracker discovery without x.pe, real magnet metadata/download with 6882 occupied (IPv4/IPv6 TCP/UDP), verified bytes, pause, HTTP seek range, ZIP roundtrip, custom port/settings validation/persistence\n";
+    core.call({{"op","remove"},{"id",hash},{"deleteData",false}});
+    assert(fs::exists(scratch/"download"/"fixture.bin"));
+    auto readded = core.call({{"op","add"},{"uri","fixture.torrent"}});
+    core.call({{"op","remove"},{"id",readded["id"]},{"deleteData",true}});
+    for(int i=0;i<100 && fs::exists(scratch/"download"/"fixture.bin");++i) std::this_thread::sleep_for(100ms);
+    assert(!fs::exists(scratch/"download"/"fixture.bin") && fs::exists(scratch/"download"/"unicode.zip"));
+    std::cout << "PASS: tracker/metadata/bytes with occupied port, queue/manual pause distinction, settings persistence, HTTP seek, UTF-8 ZIP roundtrip, extraction retry, scoped file deletion and both task-removal modes\n";
 }
