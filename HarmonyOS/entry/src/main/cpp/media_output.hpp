@@ -35,7 +35,7 @@ public:
         if(!eglChooseConfig(display,attributes,&config,1,&count)||!count)throw std::runtime_error("找不到视频图形配置");
         const EGLint ctx[]={EGL_CONTEXT_CLIENT_VERSION,2,EGL_NONE};
         context=eglCreateContext(display,config,EGL_NO_CONTEXT,ctx);
-        surface=eglCreateWindowSurface(display,config,window,nullptr);
+        surface=eglCreateWindowSurface(display,config,reinterpret_cast<EGLNativeWindowType>(window),nullptr);
         if(context==EGL_NO_CONTEXT||surface==EGL_NO_SURFACE||!eglMakeCurrent(display,surface,surface,context))throw std::runtime_error("无法建立视频显示窗口");
         const char* vs="attribute vec2 p; attribute vec2 t; varying vec2 uv; void main(){gl_Position=vec4(p,0.0,1.0);uv=t;}";
         const char* fs="precision mediump float; varying vec2 uv; uniform sampler2D ytex; uniform sampler2D utex; uniform sampler2D vtex; uniform vec3 scale; uniform mat3 matrix; uniform vec3 offset; void main(){vec3 yuv=vec3(texture2D(ytex,vec2(uv.x*scale.x,uv.y)).r,texture2D(utex,vec2(uv.x*scale.y,uv.y)).r,texture2D(vtex,vec2(uv.x*scale.z,uv.y)).r);gl_FragColor=vec4(matrix*(yuv-offset),1.0);}";
