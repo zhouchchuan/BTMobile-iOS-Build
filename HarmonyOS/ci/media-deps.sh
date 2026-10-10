@@ -45,7 +45,9 @@ EOF
       --disable-protocols --enable-protocol=file,http,tcp --enable-pthreads \
       --extra-libs='-lm'
     # Keep Linux code paths, but use unversioned SONAMEs supported by HAP packing.
-    sed -i 's/^SHFLAGS=.*/SHFLAGS=-shared -Wl,-soname,$(SLIBNAME)/;s/^SLIB_INSTALL_NAME=.*/SLIB_INSTALL_NAME=$(SLIBNAME)/;s/^SLIB_INSTALL_LINKS=.*/SLIB_INSTALL_LINKS=/' ffbuild/config.mak
+    # Preserve configure's -Bsymbolic and other linker flags: ARM64 assembly
+    # references internal FFT tables directly and requires local binding.
+    sed -i 's/-Wl,-soname,\$\$(@F)/-Wl,-soname,$(SLIBNAME)/;s/^SLIB_INSTALL_NAME=.*/SLIB_INSTALL_NAME=$(SLIBNAME)/;s/^SLIB_INSTALL_LINKS=.*/SLIB_INSTALL_LINKS=/' ffbuild/config.mak
     make -j3
     make install
   )

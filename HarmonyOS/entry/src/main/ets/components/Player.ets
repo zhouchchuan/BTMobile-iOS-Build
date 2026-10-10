@@ -66,7 +66,7 @@ export struct Player {
           this.playbackReady = true;
           this.duration = Math.max(1, this.player.duration);
           this.tracks = (await this.player.getTrackDescription()).filter((track: media.MediaDescription) => Number(track['track_type']) !== media.MediaType.MEDIA_TYPE_VID);
-          this.selectedTracks = await created.getSelectedTracks();
+          try { this.selectedTracks = await created.getSelectedTracks(); } catch (_) { this.selectedTracks = []; }
           await this.player.play();
         } else if (state === 'playing') {
           this.playing = true;
