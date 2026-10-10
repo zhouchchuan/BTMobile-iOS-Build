@@ -1,4 +1,5 @@
 #include "media_output.hpp"
+#include "media_probe.hpp"
 #include <napi/native_api.h>
 #include <hilog/log.h>
 using btmmedia::Json;
@@ -6,8 +7,9 @@ static std::mutex playerMutex;
 static std::unique_ptr<btmmedia::Engine> player;
 static int serial=0;
 static Json command(const Json& request) {
-    std::lock_guard<std::mutex> lock(playerMutex);
     std::string op=request.at("op");
+    if(op=="probe")return btmmedia::MediaProbe().run(request.value("fd",-1),request.value("url",std::string()));
+    std::lock_guard<std::mutex> lock(playerMutex);
     if(op=="start"){
         player.reset();++serial;
         auto surface=request.at("surface").get<std::string>();
@@ -23,7 +25,11 @@ static Json command(const Json& request) {
     else if(op=="track")player->selectTrack(request.at("track").get<int>());
     else if(op=="subtitleOff")player->selectTrack(-2);
     else if(op!="status")throw std::runtime_error("未知播放器操作");
-    return player->status();
+    auto status=player->status();
+    static int loggedErrorSerial=-1,loggedFrameSerial=-1;
+    if(status["error"]!=""&&loggedErrorSerial!=serial){loggedErrorSerial=serial;OH_LOG_Print(LOG_APP,LOG_ERROR,0x1202,"BTMobilePlayer","AV1 output failed: %{public}s",status["error"].get<std::string>().c_str());}
+    if(status["renderedFrames"].get<int64_t>()>0&&loggedFrameSerial!=serial){loggedFrameSerial=serial;OH_LOG_Print(LOG_APP,LOG_INFO,0x1202,"BTMobilePlayer","AV1 decoded and presented first frame");}
+    return status;
 }
 struct Work {napi_async_work work; napi_deferred deferred;std::string request,result,error;};
 static napi_value Invoke(napi_env env,napi_callback_info info) {

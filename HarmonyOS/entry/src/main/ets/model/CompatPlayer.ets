@@ -7,6 +7,7 @@ export interface CompatStatus {
   playing?: boolean; waiting?: boolean; complete?: boolean; error?: string; warning?: string;
   tracks?: media.MediaDescription[]; subtitle?: string; decoder?: string;
   width?: number; height?: number; audioTrack?: number; subtitleTrack?: number;
+  videoCodec?: string; decodedFrames?: number; renderedFrames?: number; audioSamples?: number;
 }
 export async function compatibility(request: CompatRequest): Promise<CompatStatus> {
   return JSON.parse(await compat.invoke(JSON.stringify(request))) as CompatStatus;

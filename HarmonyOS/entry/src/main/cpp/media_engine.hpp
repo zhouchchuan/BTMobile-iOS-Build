@@ -54,7 +54,7 @@ class Engine {
     std::atomic<int> requestedTrack{-1};
     std::atomic<int> videoWidth{0},videoHeight{0};
     std::atomic<double> position{0},duration{0};
-    std::atomic<int64_t> lastFrameAt{0},lastAudioAt{0};
+    std::atomic<int64_t> lastFrameAt{0},lastAudioAt{0},decodedFrames{0},renderedFrames{0},audioSamples{0};
     std::mutex mutex;
     std::condition_variable wake;
     std::deque<VideoFrame> video;
@@ -172,7 +172,8 @@ class Engine {
                     auto s=format->streams[i];auto type=s->codecpar->codec_type;
                     if(type!=AVMEDIA_TYPE_AUDIO && type!=AVMEDIA_TYPE_SUBTITLE)continue;
                     auto lang=av_dict_get(s->metadata,"language",nullptr,0);
-                    tracks.push_back({{"track_index",i},{"track_type",type==AVMEDIA_TYPE_AUDIO?0:2},{"language",lang?lang->value:""},{"codec_mime",avcodec_get_name(s->codecpar->codec_id)}});
+                    auto title=av_dict_get(s->metadata,"title",nullptr,0);
+                    tracks.push_back({{"track_index",i},{"track_type",type==AVMEDIA_TYPE_AUDIO?0:2},{"language",lang?lang->value:""},{"track_name",title?title->value:""},{"codec_mime",avcodec_get_name(s->codecpar->codec_id)}});
                 }
             }
             audioTrack=ai; hasAudio=ai>=0; loaded=true; ioDeadline=0;
@@ -181,7 +182,7 @@ class Engine {
                 for(;;) {
                     int result=avcodec_receive_frame(vcodec,frame.get());
                     if(result==AVERROR(EAGAIN)||result==AVERROR_EOF)break;
-                    requireFF(result,"AV1 解码失败");
+                    requireFF(result,"AV1 解码失败");++decodedFrames;
                     videoWidth=frame->width;videoHeight=frame->height;
                     double pts=timestamp(frame->best_effort_timestamp,format->streams[vi],origin,videoNext);
                     auto rate=av_guess_frame_rate(format,format->streams[vi],frame.get());
@@ -285,7 +286,7 @@ class Engine {
         }
         // Silence during starvation advances the clock so a video-filled queue can
         // drain and the demuxer can reach the next interleaved audio packet.
-        if(filled>0)lastAudioAt=monotonicMs();
+        if(filled>0){lastAudioAt=monotonicMs();audioSamples+=filled/4;}
         if(filled<bytes && !eof)position=position.load()+double(bytes-filled)/192000;
         wake.notify_all();
     }
@@ -315,7 +316,7 @@ class Engine {
                 bool late=!first && !video.empty() && item.pts<position-0.12;
                 lastGeneration=generation;wake.notify_all();
                 if(late)continue;
-                lock.unlock();output->draw(item.frame.get());lastFrameAt=monotonicMs();
+                lock.unlock();output->draw(item.frame.get());lastFrameAt=monotonicMs();++renderedFrames;
             }
         }catch(const std::exception& e){if(!stopped)fail(e.what());}
         output->stopAudio();output->closeVideo();
@@ -339,7 +340,8 @@ public:
         bool waiting=!complete&&!paused&&(!renderReady||monotonicMs()-lastFrameAt>1200);
         return {{"position",std::max(0.0,pos*1000)},{"duration",duration.load()*1000},{"playing",!paused&&!complete&&error.empty()},
           {"waiting",waiting},{"complete",complete},{"error",error},{"warning",warning},{"tracks",tracks},{"subtitle",sub},
-          {"ready",renderReady.load()},{"decoder","dav1d"},{"audioTrack",audioTrack.load()},{"subtitleTrack",subtitleTrack.load()},
+          {"ready",renderReady.load()&&renderedFrames>0&&error.empty()},{"decoder","dav1d"},{"audioTrack",audioTrack.load()},{"subtitleTrack",subtitleTrack.load()},
+          {"decodedFrames",decodedFrames.load()},{"renderedFrames",renderedFrames.load()},{"audioSamples",audioSamples.load()},
           {"width",videoWidth.load()},{"height",videoHeight.load()}};
     }
 };

@@ -6,12 +6,18 @@ import { BusinessError } from '@ohos.base';
 import hilog from '@ohos.hilog';
 import { compatibility } from '../model/CompatPlayer';
 import { isAv1DecoderFailure, canControlPlayback } from '../model/PlaybackPolicy';
+import { trackLabel, enrichTracks } from '../model/TrackLabels';
 
 @Component
 export struct Player {
   @Prop source: string = '';
   @Prop title: string = '';
   onClose: () => void = () => {};
+  @Prop @Watch('backRequested') closeRequest: number = 0;
+  private opening: Promise<void> | undefined = undefined;
+  private releasing: Promise<void> | undefined = undefined;
+  private probeTracks: media.MediaDescription[] = [];
+  private firstNativeFrame: boolean = false;
   private surface: XComponentController = new XComponentController();
   private player?: media.AVPlayer;
   private localFile?: fs.File;
@@ -48,8 +54,21 @@ export struct Player {
   @State areaWidth: number = 1;
   @State areaHeight: number = 1;
 
-  async start(): Promise<void> {
+  start(): void { if (!this.opening) this.opening = this.open(); }
+  async open(): Promise<void> {
     try {
+      this.setOrientation(false);
+      if (!this.source.startsWith('http://127.0.0.1:')) this.localFile = fs.openSync(this.source, fs.OpenMode.READ_ONLY);
+      try {
+        const metadata = await compatibility({ op: 'probe', fd: this.localFile?.fd ?? -1, url: this.localFile ? '' : this.source });
+        if (this.disposed) return;
+        this.probeTracks = metadata.tracks ?? [];
+        if ((metadata.width ?? 0) > 0) this.videoSize(metadata.width ?? 0, metadata.height ?? 0);
+        if (metadata.videoCodec === 'av1') {
+          this.fallbackAttempted = true; this.compatStart = this.startCompatibility(); await this.compatStart; return;
+        }
+      } catch (_) { /* An incomplete streaming header must not prevent native playback. */ }
+      if (this.disposed) return;
       const created = await media.createAVPlayer();
       if (this.disposed) { await created.release(); return; }
       this.player = created;
@@ -65,7 +84,7 @@ export struct Player {
           this.videoSize(created.width, created.height);
           this.playbackReady = true;
           this.duration = Math.max(1, this.player.duration);
-          this.tracks = (await this.player.getTrackDescription()).filter((track: media.MediaDescription) => Number(track['track_type']) !== media.MediaType.MEDIA_TYPE_VID);
+          this.tracks = enrichTracks((await this.player.getTrackDescription()).filter((track: media.MediaDescription) => Number(track['track_type']) !== media.MediaType.MEDIA_TYPE_VID), this.probeTracks);
           try { this.selectedTracks = await created.getSelectedTracks(); } catch (_) { this.selectedTracks = []; }
           await this.player.play();
         } else if (state === 'playing') {
@@ -76,12 +95,22 @@ export struct Player {
         }
         } catch(e) { if (!this.disposed && !this.fallbackAttempted) this.handleError(e as BusinessError); }
       });
+      created.on('startRenderFrame', () => { this.firstNativeFrame = true; this.waiting = false; hilog.info(0x1202, 'BTMobilePlayer', 'Native first frame rendered'); });
+      created.on('trackChange', (index: number, selected: boolean) => {
+        if (this.disposed || this.player !== created) return;
+        this.selectedTracks = this.selectedTracks.filter((id: number) => id !== index);
+        if (selected) this.selectedTracks = this.selectedTracks.concat([index]);
+        this.subtitle = '';
+      });
+      created.on('trackInfoUpdate', (tracks: media.MediaDescription[]) => {
+        if (!this.disposed && this.player === created) this.tracks = enrichTracks(tracks.filter((t: media.MediaDescription) => Number(t['track_type']) !== 1), this.probeTracks);
+      });
       created.on('videoSizeChange', (width: number, height: number) => {
         if (this.player === created && !this.disposed && !this.fallbackAttempted) this.videoSize(width, height);
       });
       this.player.on('timeUpdate', (time: number) => {
         if (this.player !== created || this.disposed || this.fallbackAttempted) return;
-        if (time !== this.playbackPosition) { this.waiting = false; this.lastProgress = Date.now(); }
+        if (time !== this.playbackPosition) { if (this.firstNativeFrame) this.waiting = false; this.lastProgress = Date.now(); }
         this.playbackPosition = time;
       });
       this.player.on('bufferingUpdate', (type: number) => {
@@ -98,11 +127,8 @@ export struct Player {
         if (this.player === created && !this.disposed) this.handleError(error);
       });
       if (this.source.startsWith('http://127.0.0.1:')) this.player.url = this.source;
-      else {
-        this.localFile = fs.openSync(this.source, fs.OpenMode.READ_ONLY);
-        this.player.fdSrc = { fd: this.localFile.fd, offset: 0, length: fs.statSync(this.localFile.fd).size };
-      }
-    } catch (e) { this.errorText = (e as Error).message; this.waiting = false; }
+      else if (this.localFile) this.player.fdSrc = { fd: this.localFile.fd, offset: 0, length: fs.statSync(this.localFile.fd).size };
+    } catch (e) { if (!this.disposed) { this.errorText = (e as Error).message; this.waiting = false; } }
   }
   handleError(error: BusinessError): void {
     hilog.error(0x1202, 'BTMobilePlayer', 'system playback failed, code=%{public}d, av1=%{public}s', error.code ?? 0, isAv1DecoderFailure(error.message, error.code) ? 'true' : 'false');
@@ -184,7 +210,8 @@ export struct Player {
   videoSize(width: number, height: number): void {
     if (width <= 0 || height <= 0) return;
     this.videoRatio = width / height;
-    if (!this.orientationChosen) { this.orientationChosen = true; this.setOrientation(width > height); }
+    // Portrait playback keeps the original aspect ratio with letterboxing.
+    // Only the explicit fullscreen control changes the orientation.
   }
   setOrientation(landscape: boolean): void {
     this.fullscreen = landscape;
@@ -209,17 +236,7 @@ export struct Player {
     this.autoHide();
   }
   panelTracks(): media.MediaDescription[] { return this.tracks.filter((t: media.MediaDescription) => Number(t['track_type']) === this.trackPanel); }
-  trackName(track: media.MediaDescription, index: number): string {
-    const language = String(track['language'] ?? '').toLowerCase();
-    let name = language;
-    if (['zh','zho','chi','zh-cn','zh-hans'].includes(language)) name = '中文';
-    else if (['en','eng'].includes(language)) name = '英语';
-    else if (['ja','jpn'].includes(language)) name = '日语';
-    else if (['ko','kor'].includes(language)) name = '韩语';
-    if (!name || name === 'und') name = '未标注语言';
-    const kind = Number(track['track_type']) === media.MediaType.MEDIA_TYPE_AUD ? '音轨' : '字幕';
-    return kind + ' ' + (index + 1).toString() + ' · ' + name + (track['codec_mime'] ? ' · ' + String(track['codec_mime']) : '');
-  }
+  trackName(track: media.MediaDescription, index: number): string { return trackLabel(track, index); }
   subtitleDisabled(): boolean {
     return !this.tracks.some((t: media.MediaDescription) => Number(t['track_type']) === media.MediaType.MEDIA_TYPE_SUBTITLE && this.selectedTracks.includes(Number(t['track_index'])));
   }
@@ -229,17 +246,26 @@ export struct Player {
     await w.setPreferredOrientation(window.Orientation.UNSPECIFIED);
     await w.setWindowLayoutFullScreen(false); await w.setWindowSystemBarEnable(['status', 'navigation']);
   }
-  async close(): Promise<void> {
-    this.disposed = true;
-    clearTimeout(this.timer); clearTimeout(this.subtitleTimer);
-    try {
-      await this.releasePlayer();
-      await this.restoreWindow();
-    } finally { this.onClose(); }
+  backRequested(): void {
+    if (this.trackPanel >= 0) { this.trackPanel = -1; this.controls = true; this.autoHide(); }
+    else this.close();
   }
-  async releasePlayer(): Promise<void> {
-    // A native start duplicates the file descriptor asynchronously. Do not close
-    // the ArkTS descriptor while that operation still owns a pending reference.
+  close(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    clearTimeout(this.timer); clearTimeout(this.subtitleTimer); clearInterval(this.compatTimer);
+    // Exit the UI immediately. Decoder cleanup must never trap the user on a
+    // broken screen; its retained native window remains valid until release.
+    this.onClose();
+    this.releasePlayer().catch(() => {});
+    this.restoreWindow().catch(() => {});
+  }
+  releasePlayer(): Promise<void> {
+    if (!this.releasing) this.releasing = this.cleanupPlayer();
+    return this.releasing;
+  }
+  async cleanupPlayer(): Promise<void> {
+    if (this.opening) await this.opening;
     if (this.compatStart) await this.compatStart;
     clearInterval(this.compatTimer); this.compatTimer = -1;
     const token = this.compatToken; this.compatToken = -1;
@@ -251,7 +277,7 @@ export struct Player {
   aboutToDisappear(): void {
     const restore = !this.disposed;
     this.disposed = true;
-    clearTimeout(this.timer); clearTimeout(this.subtitleTimer);
+    clearTimeout(this.timer); clearTimeout(this.subtitleTimer); clearInterval(this.compatTimer);
     this.releasePlayer().catch(() => {});
     if (restore) this.restoreWindow().catch(() => {});
   }
@@ -259,73 +285,128 @@ export struct Player {
     let s = Math.floor(ms / 1000);
     return Math.floor(s / 60).toString() + ':' + (s % 60).toString().padStart(2, '0');
   }
+  panelWidth(): number { return Math.min(340, Math.max(220, this.areaWidth - 32)); }
+  panelHeight(): number { return Math.max(100, Math.min(390, this.areaHeight - 160)); }
+  @Builder
+  roundControl(icon: Resource, label: string, op: string, value: number, large: boolean) {
+    Button({ type: ButtonType.Circle }) {
+      Image(icon).width(large ? 32 : 28).height(large ? 32 : 28).fillColor(Color.White)
+    }.width(large ? 76 : 56).height(large ? 76 : 56)
+      .backgroundColor('#88333333').border({ width: 1, color: '#66FFFFFF' })
+      .enabled(this.playbackReady).accessibilityText(label).onClick(() => { this.control(op, value); })
+  }
+  @Builder
+  menuButton(label: string, selected: boolean, action: () => void) {
+    Button(label).height(44).fontSize(14).fontColor(selected ? '#F6AE7A' : Color.White)
+      .backgroundColor(selected ? '#CC544034' : '#99333333').padding({ left: 16, right: 16 }).onClick(action)
+  }
   build() {
-    Stack({ alignContent: Alignment.Center }) {
+    // Stack.align aligns a component's own content, not its position in the
+    // parent. Explicit positions keep every hit region in screen coordinates.
+    Stack({ alignContent: Alignment.TopStart }) {
       XComponent({ id: 'bt-video', type: XComponentType.SURFACE, controller: this.surface })
-        .width(this.surfaceWidth()).height(this.surfaceHeight()).hitTestBehavior(HitTestMode.None).onLoad(() => { this.start(); })
-      // An actual full-size hit plane; no full-height control Column intercepts
-      // taps on empty space. Only visible buttons/slider sit above this plane.
-      Column() {}.width('100%').height('100%').backgroundColor(Color.Transparent)
-        .onClick(() => { this.toggleControls(); }).accessibilityText('点击显示或隐藏播放控制')
-      if (this.waiting && this.errorText.length === 0) {
-        Row({ space: 10 }) { LoadingProgress().width(28).height(28).color(Color.White); Text('正在缓冲…').fontColor(Color.White) }
-          .padding(14).borderRadius(18).backgroundColor('#AA222222').hitTestBehavior(HitTestMode.None)
+        .width(this.surfaceWidth()).height(this.surfaceHeight())
+        .position({ x: (this.areaWidth - this.surfaceWidth()) / 2, y: (this.areaHeight - this.surfaceHeight()) / 2 })
+        .zIndex(0).hitTestBehavior(HitTestMode.None).onLoad(() => { this.start(); })
+      // This plane covers black bars as well as the picture, in both orientations.
+      Column() {}.width('100%').height('100%').position({ x: 0, y: 0 }).zIndex(1)
+        .backgroundColor(Color.Transparent).hitTestBehavior(HitTestMode.Block)
+        .onClick(() => { this.toggleControls(); }).accessibilityText('显示或隐藏播放控制')
+      if (this.waiting && !this.errorText) {
+        Row({ space: 10 }) { LoadingProgress().width(24).height(24).color(Color.White); Text('正在缓冲…').fontSize(14).fontColor(Color.White) }
+          .padding(12).borderRadius(20).backgroundColor('#CC222222')
+          .position({ x: Math.max(16, this.areaWidth / 2 - 68), y: Math.max(80, this.areaHeight / 2 + 52) }).zIndex(2).hitTestBehavior(HitTestMode.None)
       }
-      if (this.errorText.length > 0) { Text(this.errorText).fontColor(Color.White).padding(32).hitTestBehavior(HitTestMode.None) }
-      Column() {
-        Blank()
-        Text(this.subtitle).fontSize(20).fontColor(Color.White).textShadow({ radius: 3, color: Color.Black, offsetX: 1, offsetY: 1 }).textAlign(TextAlign.Center).margin({ bottom: this.controls ? 138 : 32 })
-      }.height('100%').width('90%').hitTestBehavior(HitTestMode.None)
+      if (this.errorText) {
+        Column({ space: 8 }) {
+          Text('播放未能启动').fontColor(Color.White).fontSize(17)
+          Text(this.errorText).fontColor('#DDDDDD').fontSize(13).maxLines(5)
+          Text('点右上角 × 返回文件列表').fontColor('#F6AE7A').fontSize(13)
+        }.padding(20).width('90%').backgroundColor('#CC222222').borderRadius(20)
+          .position({ x: '5%', y: 92 }).zIndex(7).hitTestBehavior(HitTestMode.None)
+      }
+      if (this.subtitle) {
+        Text(this.subtitle).fontSize(20).fontColor(Color.White)
+          .textShadow({ radius: 3, color: Color.Black, offsetX: 1, offsetY: 1 }).textAlign(TextAlign.Center)
+          .width('90%').maxLines(4)
+          .position({ x: '5%', y: Math.max(80, Math.min((this.areaHeight + this.surfaceHeight()) / 2 - 90, this.areaHeight - (this.controls ? 180 : 90))) })
+          .zIndex(3).hitTestBehavior(HitTestMode.None)
+      }
       if (this.controls) {
-        Column({ space: 4 }) {
-          Row() {
-            Button('×', { type: ButtonType.Circle }).width(48).height(48).fontSize(30).fontColor(Color.White).backgroundColor('#99333333').accessibilityText('关闭播放器').onClick(() => { this.close(); })
-            Text(this.title).fontColor(Color.White).fontSize(15).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).padding(12)
-          }.width('100%')
-          if (this.warningText && !this.errorText) { Text(this.warningText).fontColor('#CCCCCC').fontSize(12).maxLines(2).padding(8) }
-        }.padding({ left: 24, right: 24, top: 12 }).width('100%').align(Alignment.TopStart)
-        Row({ space: 24 }) {
-          Button('−10秒').width(72).height(52).fontSize(14).fontColor(Color.White).backgroundColor('#99333333').enabled(this.playbackReady).onClick(() => { this.control('seek', Math.max(0, this.playbackPosition - 10000)); })
-          Button(this.playing ? '暂停' : '播放').width(72).height(60).fontSize(18).fontColor(Color.White).backgroundColor('#AA333333').enabled(this.playbackReady).onClick(() => { this.control(this.playing ? 'pause' : 'play'); })
-          Button('+10秒').width(72).height(52).fontSize(14).fontColor(Color.White).backgroundColor('#99333333').enabled(this.playbackReady).onClick(() => { this.control('seek', Math.min(this.duration - 1, this.playbackPosition + 10000)); })
-        }.justifyContent(FlexAlign.Center)
-        Column({ space: 2 }) {
-            Slider({ value: this.playbackPosition, min: 0, max: this.duration, step: 1000 }).height(36).selectedColor('#F39A56').enabled(this.playbackReady).onChange((value: number, mode: SliderChangeMode) => {
-              clearTimeout(this.timer);
-              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.control('seek', value);
-            })
-            Text(this.clock(this.playbackPosition) + ' / ' + this.clock(this.duration)).fontSize(12).fontColor('#DDDDDD').width('100%')
-            Row({ space: 6 }) {
-              Button('字幕').layoutWeight(1).height(44).fontSize(14).fontColor(Color.White).backgroundColor('#555555').onClick(() => { this.trackPanel = media.MediaType.MEDIA_TYPE_SUBTITLE; clearTimeout(this.timer); })
-              Button('音轨').layoutWeight(1).height(44).fontSize(14).fontColor(Color.White).backgroundColor('#555555').onClick(() => { this.trackPanel = media.MediaType.MEDIA_TYPE_AUD; clearTimeout(this.timer); })
-              Button(this.fitCrop ? '裁剪铺满' : '原始比例').layoutWeight(1).height(44).fontSize(12).fontColor(Color.White).backgroundColor('#555555').onClick(() => { this.fitCrop = !this.fitCrop; this.autoHide(); })
-              Button(this.fullscreen ? '竖屏' : '横屏').layoutWeight(1).height(44).fontSize(14).fontColor(Color.White).backgroundColor('#555555').onClick(() => { this.toggleFullscreen(); })
-            }.width('100%')
-        }.padding({ left: 20, right: 20, top: 4, bottom: 16 }).backgroundColor('#CC222222').width('100%').align(Alignment.BottomStart)
+        Text(this.title).fontColor(Color.White).fontSize(14).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width(Math.max(80, this.areaWidth - 112)).position({ x: 24, y: 34 }).zIndex(5).hitTestBehavior(HitTestMode.None)
+        if (this.warningText && !this.errorText) {
+          Text(this.warningText).fontColor('#CCCCCC').fontSize(11).maxLines(2).width('75%')
+            .position({ x: 24, y: 66 }).zIndex(5).hitTestBehavior(HitTestMode.None)
+        }
+        if (!this.errorText && this.trackPanel < 0) {
+          Row({ space: 26 }) {
+            this.roundControl($r('app.media.player_back10'), '倒退 10 秒', 'seek', Math.max(0, this.playbackPosition - 10000), false)
+            this.roundControl(this.playing ? $r('app.media.action_pause') : $r('app.media.action_play'), this.playing ? '暂停' : '播放', this.playing ? 'pause' : 'play', 0, true)
+            this.roundControl($r('app.media.player_forward10'), '前进 10 秒', 'seek', Math.max(0, Math.min(this.duration - 1, this.playbackPosition + 10000)), false)
+          }.width(240).height(76).justifyContent(FlexAlign.Center)
+            .position({ x: Math.max(0, this.areaWidth / 2 - 120), y: Math.max(90, this.areaHeight / 2 - 38) }).zIndex(5)
+        }
+        Column({ space: 10 }) {
+          Row({ space: 6 }) {
+            this.menuButton('音轨', this.trackPanel === 0, () => { this.trackPanel = this.trackPanel === 0 ? -1 : 0; clearTimeout(this.timer); })
+            this.menuButton('字幕', this.trackPanel === 2, () => { this.trackPanel = this.trackPanel === 2 ? -1 : 2; clearTimeout(this.timer); })
+            this.menuButton(this.fitCrop ? '铺满' : '适应', this.fitCrop, () => { this.fitCrop = !this.fitCrop; this.autoHide(); })
+            this.menuButton(this.fullscreen ? '竖屏' : '横屏', this.fullscreen, () => { this.toggleFullscreen(); })
+          }.width('100%').justifyContent(FlexAlign.End)
+          Row({ space: 8 }) {
+            Text(this.clock(this.playbackPosition)).fontSize(12).fontColor('#EEEEEE')
+            Slider({ value: this.playbackPosition, min: 0, max: this.duration, step: 1000 })
+              .layoutWeight(1).height(44).selectedColor('#F39A56').enabled(this.playbackReady)
+              .onChange((value: number, mode: SliderChangeMode) => {
+                clearTimeout(this.timer);
+                if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.control('seek', value);
+              })
+            Text('−' + this.clock(Math.max(0, this.duration - this.playbackPosition))).fontSize(12).fontColor('#EEEEEE')
+          }.width('100%').padding({ left: 14, right: 14 }).height(50).backgroundColor('#AA222222').borderRadius(28)
+        }.width(Math.max(0, this.areaWidth - 40)).height(104)
+          .position({ x: 20, y: Math.max(150, this.areaHeight - 132) }).zIndex(5)
       }
       if (this.trackPanel >= 0) {
-        Column({ space: 12 }) {
+        Column() {
           Row() {
-            Text(this.trackPanel === media.MediaType.MEDIA_TYPE_AUD ? '选择音轨' : '选择字幕').fontSize(18).fontColor(Color.White).layoutWeight(1)
-            Button('×', { type: ButtonType.Circle }).width(44).height(44).fontSize(26).fontColor(Color.White).backgroundColor('#555555').onClick(() => { this.trackPanel = -1; this.autoHide(); })
-          }.width('100%')
+            Text(this.trackPanel === 0 ? '音轨' : '字幕').fontSize(16).fontColor('#DDDDDD').layoutWeight(1)
+            Button('完成').height(40).fontSize(14).fontColor(Color.White).backgroundColor(Color.Transparent)
+              .accessibilityText('关闭选择菜单').onClick(() => { this.trackPanel = -1; this.controls = true; this.autoHide(); })
+          }.width('100%').padding({ left: 16, right: 8 })
           Scroll() {
-            Column({ space: 8 }) {
-              if (this.trackPanel === media.MediaType.MEDIA_TYPE_SUBTITLE) {
-                Button((this.subtitleDisabled() ? '✓  ' : '') + '关闭字幕').width('100%').height(48).fontColor(Color.White).backgroundColor(this.subtitleDisabled() ? '#995A30' : '#444444').onClick(async () => { await this.control('subtitleOff'); this.trackPanel = -1; this.autoHide(); })
+            Column() {
+              if (this.trackPanel === 2) {
+                Button() {
+                  Row() { Text(this.subtitleDisabled() ? '✓' : '').width(26).fontColor('#F6AE7A'); Text('关闭字幕').fontColor(Color.White).layoutWeight(1) }
+                }.width('100%').height(48).backgroundColor(Color.Transparent).borderRadius(0)
+                  .onClick(async () => { await this.control('subtitleOff'); this.trackPanel = -1; this.autoHide(); })
               }
               ForEach(this.panelTracks(), (track: media.MediaDescription, index: number) => {
-                Button((this.selectedTracks.includes(Number(track['track_index'])) ? '✓  ' : '') + this.trackName(track, index))
-                  .width('100%').constraintSize({ minHeight: 48 }).fontSize(14).fontColor(Color.White)
-                  .backgroundColor(this.selectedTracks.includes(Number(track['track_index'])) ? '#995A30' : '#444444')
+                Button() {
+                  Row() {
+                    Text(this.selectedTracks.includes(Number(track['track_index'])) ? '✓' : '').width(26).fontColor('#F6AE7A')
+                    Text(this.trackName(track, index)).fontSize(15).fontColor(Color.White).maxLines(2).layoutWeight(1)
+                  }.width('100%').padding({ left: 12, right: 12 })
+                }.width('100%').constraintSize({ minHeight: 52 }).backgroundColor(Color.Transparent).borderRadius(0)
                   .onClick(async () => { await this.control('track', Number(track['track_index'])); this.trackPanel = -1; this.autoHide(); })
+                Divider().color('#22FFFFFF').margin({ left: 38, right: 12 })
               }, (track: media.MediaDescription) => String(track['track_index']))
-              if (this.panelTracks().length === 0) { Text(this.trackPanel === 0 ? '此视频没有可选择的音轨' : '此视频没有内嵌字幕').fontColor('#CCCCCC').fontSize(14).padding(12) }
+              if (!this.panelTracks().length) { Text(this.trackPanel === 0 ? '没有可选择的音轨' : '没有内嵌字幕').fontColor('#CCCCCC').fontSize(14).padding(18) }
             }.width('100%')
-          }.constraintSize({ maxHeight: Math.max(100, this.areaHeight - 130) }).width('100%')
-        }.padding(16).width('88%').constraintSize({ maxWidth: 460 }).backgroundColor('#F2222222').borderRadius(22)
+          }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+        }.width(this.panelWidth()).height(this.panelHeight()).padding({ bottom: 8 })
+          .backgroundColor('#F02C2C30').borderRadius(24).border({ width: 1, color: '#44FFFFFF' })
+          .position({ x: Math.max(16, this.areaWidth - this.panelWidth() - 20), y: Math.max(84, this.areaHeight - this.panelHeight() - 144) }).zIndex(20)
       }
+      // Always visible and above the selector, buffering and error layers.
+      Button('×', { type: ButtonType.Circle }).width(48).height(48).fontSize(34).fontColor(Color.White)
+        .backgroundColor('#BB222222').border({ width: 1, color: '#66FFFFFF' })
+        .position({ x: Math.max(12, this.areaWidth - 72), y: 20 }).zIndex(40)
+        .accessibilityText('关闭播放器').onClick(() => { this.close(); })
     }.width('100%').height('100%').backgroundColor(Color.Black).clip(true)
-    .onAreaChange((_old: Area, area: Area) => { this.areaWidth = Math.max(1, Number(area.width)); this.areaHeight = Math.max(1, Number(area.height)); })
+      .onAreaChange((_old: Area, area: Area) => {
+        this.areaWidth = Math.max(1, Number(area.width)); this.areaHeight = Math.max(1, Number(area.height));
+      })
   }
 }

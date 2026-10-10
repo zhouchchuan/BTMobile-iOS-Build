@@ -74,6 +74,12 @@ struct Index {
   @State percent: number = 0;
   @State archiveError: string = '';
   @State removeTaskId: string = '';
+  @State playerCloseRequest: number = 0;
+
+  onBackPress(): boolean {
+    if (this.playerSource) { this.playerCloseRequest++; return true; }
+    return false;
+  }
 
   async aboutToAppear(): Promise<void> {
     this.pageVisible = true;
@@ -342,7 +348,7 @@ struct Index {
           Text(this.tab === 0 ? 'BTmobie' : this.tab === 1 ? (this.current.split('/').pop() || '文件管理') : '设置').fontSize(this.tab === 0 ? 32 : 18).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (this.tab === 1) {
             Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
-          } else { Text('0.1.4').fontSize(12).fontColor('#8E8E93') }
+          } else { Text('0.1.5').fontSize(12).fontColor('#8E8E93') }
         }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 12 })
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
@@ -394,7 +400,7 @@ struct Index {
               Column({ space: 12 }) {
               Text('原生下载核心').fontSize(16).fontWeight(FontWeight.Medium)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('Peer 客户端标志：Htorrent 0.1.4').fontSize(13)
+              Text('Peer 客户端标志：Htorrent 0.1.5').fontSize(13)
               Text(this.networkSummary).fontSize(14)
               Text(this.networkDetail).fontSize(12).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
@@ -412,7 +418,7 @@ struct Index {
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
               Text('版本信息').fontSize(16).fontWeight(FontWeight.Medium)
-              Text('BTmobie V0.1.4 调试版\n调试安装需要匹配设备的签名与 Profile。AV1 支持 dav1d 兼容解码，性能与画质仍需真机验证。').fontSize(13).fontColor('#666666')
+              Text('BTmobie V0.1.5 调试版\n调试安装需要匹配设备的签名与 Profile。AV1 支持 dav1d 兼容解码，性能与画质仍需真机验证。').fontSize(13).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
@@ -510,7 +516,7 @@ struct Index {
         ImageViewer({ source: this.imagePath, onClose: () => { this.imagePath = ''; } })
       }
       if (this.playerSource) {
-        Player({ source: this.playerSource, title: this.playerTitle, onClose: () => { this.playerSource = ''; call({ op: 'stopStream' }); } })
+        Player({ source: this.playerSource, title: this.playerTitle, closeRequest: this.playerCloseRequest, onClose: () => { this.playerSource = ''; call({ op: 'stopStream' }).catch(() => {}); } })
       }
       if (this.removeTaskId) {
         Column({ space: 18 }) {
