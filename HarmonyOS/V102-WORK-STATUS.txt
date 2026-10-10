@@ -1,0 +1,22 @@
+BTmobie HarmonyOS V1.0.2 / versionCode 10002
+Based on V1.0.1 commit 8369485d6286f51a4ba61c44778a71258dd8d2b4.
+
+Fix: first-run isKeyItemExist rejects key absence (12000011) rather than returning false.
+Use API 11+ hasKeyItem; existing key aliases, encrypted ledger path, UUID, credentials and quota are preserved.
+No destructive identity resets, key overwrites, app uninstall or download-data deletion.
+Initialization failures expose a retryable error, never an endless reading/waiting label. Manual refresh and timer retry remain available.
+Cached receipt/config failures do not discard identity. Tracker fetching and signed HarmonyOS activity reporting fail independently.
+Diagnostics log stage/error code only: no UUID, private keys, receipts, payment URLs, file names or magnets.
+Existing disabled-subscription unlimited policy, signed-response checks and offline quota behavior unchanged.
+
+Settings: one Save Core Settings action saves queue/rates/BT/custom trackers, verifies returned values and triggers signed server sync.
+Remove separate Save Queue and Sync Default Tracker buttons. Offline sync failures do not misreport a local save failure.
+Show actual port / DHT nodes / Tracker responses in one row. Core parameters/defaults and existing tasks remain unchanged.
+Launcher icon remains the exact original iOS 1.2.5 PNG. A separate 192px derivative is used only for the launch window.
+
+Tests: reproduce old 12000011 API behavior; actual vault with AES-GCM/P256 crypto adapters; first boot, persistence, concurrent retry,
+signed registration/activity, corrupted data/key-loss fail-closed, Tracker/presence independence, no automatic payment.
+Unified settings action tested for validation, returned values, double taps and offline behavior.
+These host tests do not replace on-device HUKS/online/checkout acceptance after installation.
+Player/AV1, archive libraries and BT native core source are unchanged from V1.0.1.
+

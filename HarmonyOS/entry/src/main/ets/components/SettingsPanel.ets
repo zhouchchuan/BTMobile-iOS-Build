@@ -4,7 +4,7 @@ import { SettingNumber, SettingSwitch } from './SettingField';
 @Component
 export struct SettingsPanel {
   onSaved: () => void = () => {};
-  onSync: () => void = () => {};
+  onSync: () => Promise<string> = async () => '';
   @Prop @Watch('refreshDefaults') trackerRevision: number = 0;
   @Prop runtimeMessage: string = '';
   @State loaded: boolean = false;
@@ -66,24 +66,21 @@ export struct SettingsPanel {
         autoAddTrackers: this.autoTrackers, customTrackers: this.custom.split(/\r?\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0)
       };
       await call({ op: 'setNetworkSettings', settings: settings });
-      await this.load();
-      this.message = '设置已保存并应用；不需要重启下载核心。Tracker 自动补充规则用于新添加的任务。'; this.onSaved();
-    } catch(e) { this.message = '保存失败：' + (e as Error).message; }
-    finally { this.saving = false; }
-  }
-  async saveQueue(): Promise<void> {
-    if (!this.loaded || this.saving) return;
-    this.saving = true; this.message = '';
-    try {
-      const update: NetworkSettings = { queueEnabled: this.queue,
-        maxActive: this.number(this.active, '总活跃任务数', 0, 1000),
-        maxDownloads: this.number(this.downloads, '同时下载数', 0, 1000),
-        maxSeeds: this.number(this.seeds, '同时做种数', 0, 1000) };
-      await call({ op: 'setNetworkSettings', settings: update });
       const saved = (await call({ op: 'getNetworkSettings' })).settings;
-      if (!saved || saved.queueEnabled !== update.queueEnabled || saved.maxActive !== update.maxActive ||
-        saved.maxDownloads !== update.maxDownloads || saved.maxSeeds !== update.maxSeeds) throw new Error('核心回读值不一致，请重试');
-      this.message = '队列设置已保存并回读确认'; this.onSaved();
+      if (!saved || saved.queueEnabled !== settings.queueEnabled || saved.maxActive !== settings.maxActive ||
+        saved.maxDownloads !== settings.maxDownloads || saved.maxSeeds !== settings.maxSeeds ||
+        saved.downloadLimitKiB !== settings.downloadLimitKiB || saved.uploadLimitKiB !== settings.uploadLimitKiB ||
+        saved.listenPort !== settings.listenPort || saved.seedEnabled !== settings.seedEnabled ||
+        saved.dht !== settings.dht || saved.lsd !== settings.lsd || saved.natPmp !== settings.natPmp ||
+        saved.upnp !== settings.upnp || saved.utp !== settings.utp || saved.autoAddTrackers !== settings.autoAddTrackers) {
+        throw new Error('核心回读值不一致，请重试');
+      }
+      await this.load();
+      this.message = '核心与队列设置已保存，正在同步默认 Tracker…'; this.onSaved();
+      try {
+        const syncStatus = await this.onSync(); await this.refreshDefaults();
+        this.message = '核心与队列设置已保存并应用。' + syncStatus;
+      } catch (_) { this.message = '核心与队列设置已保存；云端同步暂未完成，当前 Tracker 地址继续有效。'; }
     } catch(e) { this.message = '保存失败：' + (e as Error).message; }
     finally { this.saving = false; }
   }
@@ -107,7 +104,6 @@ export struct SettingsPanel {
           SettingNumber({ title: '同时做种任务数', value: $seeds })
         }.enabled(this.queue)
         Text('总活跃数同时约束下载与做种。数量 0 表示该类任务等待；关闭队列则不限数量。手动暂停的任务不会因保存设置而自动继续。').fontSize(12).fontColor('#666666')
-        Button(this.saving ? '正在保存…' : '保存队列设置').fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.saveQueue(); })
         if (this.message) { Text(this.message).fontSize(12).fontColor('#995522') }
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Column({ space: 14 }) {
@@ -126,13 +122,12 @@ export struct SettingsPanel {
         Text('服务端默认地址 · 配置 ' + this.trackerRevision.toString()).fontSize(15).fontWeight(FontWeight.Medium)
         Text(this.defaults).fontSize(12).width('100%').copyOption(CopyOptions.InApp)
         Text(this.runtimeMessage).fontSize(12).fontColor('#8E8E93')
-        Button('同步默认 Tracker').fontSize(13).fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.onSync(); })
         Text('服务端统一管理默认地址，联网约每分钟同步；断网保留缓存，自定义地址不被覆盖。不重启核心，不改变已有任务的 Tracker。').fontSize(12).fontColor('#666666')
         Text('自定义地址（每行一个）').fontSize(15).fontWeight(FontWeight.Medium)
         TextArea({ text: this.custom, placeholder: 'http://、https:// 或 udp:// 地址' }).fontSize(13).height(160).onChange((v: string) => { this.custom = v; })
         Text('自动去重，保留磁力和种子自带地址。已识别为私有的种子不补充公共 Tracker。').fontSize(12).fontColor('#666666')
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
-        Button(this.saving ? '正在保存…' : '保存核心设置').width('100%').backgroundColor('#F39A56').onClick(() => { this.save(); })
+        Button(this.saving ? '正在保存与同步…' : '保存核心设置').width('100%').backgroundColor('#F39A56').onClick(() => { this.save(); })
       }.enabled(this.loaded && !this.saving).alignItems(HorizontalAlign.Start).width('100%')
       if (this.message) { Text(this.message).fontSize(13).fontColor('#995522') }
     }.width('100%').alignItems(HorizontalAlign.Start)

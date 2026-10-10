@@ -1,6 +1,8 @@
 import common from '@ohos.app.ability.common';
 import http from '@ohos.net.http';
 import systemDateTime from '@ohos.systemDateTime';
+import hilog from '@ohos.hilog';
+import { BusinessError } from '@ohos.base';
 import { call, TaskInfo } from './Native';
 import { APP_VERSION, SUBSCRIPTION_ORIGIN, SUBSCRIPTION_AUDIENCE, Ledger, Entitlement, RuntimeConfig, Activity,
   validateEntitlement, validateConfig, fresh, paid, unlimited, remaining, reserve, refund, validCheckout, OrderRow } from './SubscriptionPolicy';
@@ -18,6 +20,7 @@ interface RequestHeaders { header: Record<string, string>; nonce: string }
 @Observed
 export class SubscriptionState {
   ready: boolean = false;
+  identityMessage: string = '正在读取';
   deviceID: string = '';
   status: string = '正在读取设备订阅…';
   expiresAt: number = 0;
@@ -51,6 +54,15 @@ export class SubscriptionService {
   private registered: boolean = false;
   private pendingOrderID: string = '';
   private pendingOrderChannel: string = '';
+  private context: common.UIAbilityContext | undefined = undefined;
+
+  private failure(stage: string, error: Error): string {
+    const code = (error as BusinessError).code;
+    const suffix = typeof code === 'number' ? '（错误码 ' + code.toString() + '）' : '';
+    // Never log keys, UUIDs, receipts, request bodies or payment URLs.
+    hilog.warn(0x1203, 'BTMobileSubscription', '%{public}s failed; code=%{public}s', stage, typeof code === 'number' ? code.toString() : 'validation');
+    return stage + '失败' + suffix;
+  }
 
   constructor(state: SubscriptionState) { this.state = state; }
   private exclusive<T>(action: () => Promise<T>): Promise<T> {
@@ -65,6 +77,7 @@ export class SubscriptionService {
     const current = this.now(); const value = this.entitlement;
     this.state.deviceID = this.ledger?.deviceID ?? '';
     this.state.ready = this.ledger !== undefined;
+    this.state.identityMessage = this.ledger ? '已就绪' : '暂不可用，请重试';
     this.state.expiresAt = value?.expiresAt ?? 0;
     this.state.subscribed = paid(value, current);
     this.state.unlimited = unlimited(value, current);
@@ -80,27 +93,40 @@ export class SubscriptionService {
     await this.vault.save(value); this.ledger = value; this.publish();
   }
   async start(context: common.UIAbilityContext): Promise<void> {
-    try {
-      this.vault = new SubscriptionVault(context); this.ledger = await this.vault.load();
-      if (this.ledger.receipt) {
+    this.context = context; this.disposed = false;
+    // Install retries even when the first keystore attempt fails. No key/data reset is performed.
+    if (this.timer < 0) this.timer = setInterval(() => { this.synchronize(); }, 60000);
+    await this.synchronize(true);
+  }
+  private async ensureIdentity(): Promise<void> {
+    if (this.ledger) return;
+    if (!this.context) throw new Error('设备上下文尚未就绪');
+    this.state.identityMessage = '正在读取'; this.state.status = '正在初始化设备身份…';
+    this.state.runtimeMessage = '正在初始化设备身份，随后同步';
+    this.vault = new SubscriptionVault(this.context);
+    this.ledger = await this.vault.load();
+    this.publish();
+    hilog.info(0x1203, 'BTMobileSubscription', 'Device identity ready');
+    if (this.ledger.receipt) {
+      try {
         const claim = JSON.parse(await verifyEnvelope(this.ledger.receipt)) as Entitlement;
         validateEntitlement(claim, this.ledger.deviceID, this.now()); this.entitlement = claim;
-      }
-      if (this.ledger.config) {
+      } catch (error) { this.state.message = this.failure('订阅缓存校验', error as Error) + '，正在尝试在线刷新'; }
+    }
+    if (this.ledger.config) {
+      try {
         const config = JSON.parse(await verifyEnvelope(this.ledger.config)) as RuntimeConfig;
         validateConfig(config, '', this.now(), this.ledger.revision, true);
         await call({ op: 'setManagedTrackers', trackers: config.trackers, revision: config.trackersRevision });
-      }
-      this.publish();
-      this.timer = setInterval(() => { this.synchronize(); }, 60000);
-      this.synchronize();
-    } catch (_) { this.state.ready = false; this.state.status = '订阅安全数据不可用'; this.state.message = '设备安全存储读取失败。现有任务不受影响；请勿清除应用数据，联系管理员恢复订阅。'; }
+      } catch (error) { this.failure('Tracker 缓存读取', error as Error); }
+    }
+    this.publish();
   }
   stop(): void { this.disposed = true; clearInterval(this.timer); this.timer = -1; }
   setForeground(value: boolean): void {
     this.foreground = value;
     // Foreground transition is a refresh opportunity, not a new background keepalive request.
-    if (value && this.ledger && !this.disposed) this.synchronize();
+    if (value && this.context && !this.disposed) this.synchronize();
   }
   private async request(path: string, method: http.RequestMethod = http.RequestMethod.GET, body: string = '', headers?: Record<string, string>): Promise<ServiceReply> {
     if (!/^\/v1\/[a-z-]+(?:\?nonce=[A-F0-9-]+)?$/.test(path)) throw new Error('订阅接口路径无效');
@@ -141,7 +167,7 @@ export class SubscriptionService {
       maxTime: this.now(), receipt: response.body, config: this.ledger.config, revision: this.ledger.revision };
     await this.save(next); this.entitlement = claim; this.lastRefresh = this.now(); this.registered = true; this.state.online = true; this.state.message = ''; this.publish();
   }
-  private async updateRuntime(): Promise<void> {
+  private async updateTrackers(): Promise<void> {
     if (!this.ledger) return;
     const nonce = uuid(); const response = await this.request('/v1/client-config?nonce=' + nonce);
     if (response.status !== 200) throw new Error('默认 Tracker 暂时无法同步，继续使用缓存');
@@ -154,8 +180,10 @@ export class SubscriptionService {
       await this.save(next);
     }
     await call({ op: 'setManagedTrackers', trackers: config.trackers, revision: config.trackersRevision });
-    this.state.runtimeMessage = '默认 Tracker 已同步 · 配置 ' + config.trackersRevision.toString();
-    if (!this.registered) return;
+    hilog.info(0x1203, 'BTMobileSubscription', 'Managed trackers synchronized; revision=%{public}d', config.trackersRevision);
+  }
+  private async updateActivity(): Promise<void> {
+    if (!this.registered || !this.ledger) throw new Error('设备身份尚未完成注册');
     const tasks = (await call({ op: 'tasks' })).items ?? [];
     const active = tasks.filter((item: TaskInfo) => item.active && !item.paused);
     const activity: Activity = { platform: 'harmonyos', version: APP_VERSION, foreground: this.foreground,
@@ -167,22 +195,38 @@ export class SubscriptionService {
       uploadRate: Math.floor(tasks.reduce((sum: number, item: TaskInfo) => sum + Math.max(0, item.upload), 0)) };
     const body = JSON.stringify(activity); const auth = await this.signedHeaders('/v1/activity', 'POST', body);
     const result = await this.request('/v1/activity', http.RequestMethod.POST, body, auth.header);
-    if (result.status !== 200) throw new Error('Tracker 已同步；在线状态暂未上报');
+    if (result.status !== 200) throw new Error('在线状态暂未上报');
     const ack = JSON.parse(await verifyEnvelope(result.body)) as ActivityAck;
     if (ack.aud !== SUBSCRIPTION_AUDIENCE || ack.kind !== 'activity-ack' || ack.deviceID !== this.ledger.deviceID ||
       ack.nonce !== auth.nonce || Math.abs(ack.issuedAt - this.now()) >= 300) throw new Error('在线状态响应未通过校验');
-    this.state.runtimeMessage = '在线状态已同步 · 默认 Tracker 配置 ' + config.trackersRevision.toString();
+    hilog.info(0x1203, 'BTMobileSubscription', 'HarmonyOS activity acknowledged');
   }
   async synchronize(force: boolean = false): Promise<void> {
-    if (this.syncBusy || this.disposed || !this.ledger) return;
+    if (this.disposed) return;
+    if (this.syncBusy) { if (force) await this.serial; return; }
     if (!force && Date.now() - this.lastAttempt < 15000) return;
+    this.lastAttempt = Date.now();
     this.syncBusy = true; this.state.busy = true;
     try {
       await this.exclusive(async () => {
+        try { await this.ensureIdentity(); }
+        catch (error) {
+          this.state.ready = false; this.state.online = false;
+          this.state.status = '设备身份初始化失败'; this.state.identityMessage = '暂不可用，请点击刷新订阅重试';
+          this.state.message = this.failure('设备安全存储', error as Error) + '。可点击刷新重试；请勿卸载或清除应用数据，现有任务不受影响。';
+          this.state.runtimeMessage = '设备身份尚未就绪；可点击同步重试，当前 Tracker 地址继续有效';
+          return;
+        }
         try { await this.updateEntitlement(force); }
-        catch (_) { this.state.online = false; this.state.message = '暂未同步订阅；使用最近有效凭据。免费次数仍按北京时间计算，现有任务不受影响。'; this.publish(); }
-        try { await this.updateRuntime(); }
-        catch (_) { this.state.runtimeMessage = '在线状态或 Tracker 暂未同步；已保存的地址继续有效'; }
+        catch (error) { this.state.online = false; this.state.message = this.failure('订阅同步', error as Error) + '；使用最近有效凭据，现有任务不受影响。'; this.publish(); }
+        let trackerStatus = '';
+        let activityStatus = '';
+        try { await this.updateTrackers(); trackerStatus = '默认 Tracker 已同步 · 配置 ' + this.state.trackerRevision.toString(); }
+        catch (error) { trackerStatus = this.failure('Tracker 同步', error as Error) + '，保留已保存的地址'; }
+        // A failed configuration fetch must not suppress the independent presence heartbeat.
+        try { await this.updateActivity(); activityStatus = '在线状态已同步'; }
+        catch (error) { activityStatus = this.registered ? this.failure('在线状态上报', error as Error) : '在线状态等待设备注册'; }
+        this.state.runtimeMessage = trackerStatus + '；' + activityStatus;
       });
     } finally { this.syncBusy = false; this.state.busy = false; }
   }

@@ -69,8 +69,10 @@ export class SubscriptionVault {
   private path: string;
   constructor(context: common.UIAbilityContext) { this.path = context.filesDir + '/subscription-v1.enc'; }
   async load(): Promise<Ledger> {
-    const signExists = await huks.isKeyItemExist(SIGN_ALIAS, { properties: [] });
-    const aesExists = await huks.isKeyItemExist(AES_ALIAS, { properties: [] });
+    // isKeyItemExist rejects with 12000011 for a new install; it does not resolve false.
+    // API 11+ hasKeyItem returns false for absence while still rejecting real keystore errors.
+    const signExists = await huks.hasKeyItem(SIGN_ALIAS, { properties: [] });
+    const aesExists = await huks.hasKeyItem(AES_ALIAS, { properties: [] });
     if (!fs.accessSync(this.path)) {
       if (signExists || aesExists) throw new Error('订阅记录丢失，安全密钥仍存在；请勿清除数据，联系管理员恢复');
       await huks.generateKeyItem(SIGN_ALIAS, { properties: signProperties(huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_SIGN | huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_VERIFY) });

@@ -412,9 +412,11 @@ struct Index {
             Column({ space: 16 }) {
               Column({ space: 12 }) {
               Text('下载核心网络状态').fontSize(16).fontWeight(FontWeight.Medium)
-              Text('运行端口：' + this.networkPort).fontSize(14)
-              Text('DHT 节点数：' + this.networkDht).fontSize(14)
-              Text('Tracker 响应数：' + this.networkTrackers).fontSize(14)
+              Row({ space: 8 }) {
+                Text('端口 ' + this.networkPort).fontSize(12).minFontSize(9).maxFontSize(12).maxLines(1).layoutWeight(1)
+                Text('DHT 节点 ' + this.networkDht).fontSize(12).minFontSize(9).maxFontSize(12).maxLines(1).layoutWeight(1).textAlign(TextAlign.Center)
+                Text('Tracker 响应 ' + this.networkTrackers).fontSize(12).minFontSize(9).maxFontSize(12).maxLines(1).layoutWeight(1).textAlign(TextAlign.End)
+              }.width('100%')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
               Text('后台传输').fontSize(16).fontWeight(FontWeight.Medium)
@@ -423,7 +425,7 @@ struct Index {
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               SettingsPanel({ trackerRevision: this.subscriptionState.trackerRevision, runtimeMessage: this.subscriptionState.runtimeMessage,
-                onSync: () => { this.subscriptions.synchronize(true); }, onSaved: () => { this.refresh(); } })
+                onSync: async () => { await this.subscriptions.synchronize(true); return this.subscriptionState.runtimeMessage; }, onSaved: () => { this.refresh(); } })
               Column({ space: 12 }) {
                 Text('下载完成通知').fontSize(16).fontWeight(FontWeight.Medium)
                 Text(this.notificationsEnabled ? '系统通知已授权' : '未授权，请允许通知以接收下载完成提醒').fontSize(13).fontColor('#8E8E93')
@@ -436,7 +438,7 @@ struct Index {
               Row() { Text('订阅到期时间').fontSize(15).layoutWeight(1); Text(subscriptionDate(this.subscriptionState.expiresAt)).fontSize(13).fontColor('#EE9A64') }.width('100%')
               Divider().color('#E5E5EA')
               Row() { Text('订阅与设备身份').fontSize(15).layoutWeight(1); Text(this.subscriptionState.status + ' ›').fontSize(14).fontColor('#EE9A64') }.width('100%').height(40).onClick(() => { this.showSubscription = true; this.subscriptions.synchronize(); })
-              Text('UUID：' + (this.subscriptionState.deviceID || '正在读取')).fontSize(12).fontColor('#8E8E93').copyOption(CopyOptions.InApp)
+              Text('UUID：' + (this.subscriptionState.deviceID || this.subscriptionState.identityMessage)).fontSize(12).fontColor('#8E8E93').copyOption(CopyOptions.InApp)
               Text(this.subscriptionState.unlimited ? '无限添加下载任务' : '今日免费剩余 ' + this.subscriptionState.freeRemaining.toString() + ' / 3 次').fontSize(12).fontColor('#8E8E93')
               Text('订阅 8 元 / 30 天，以最近一次有效同步的服务端策略为准。').fontSize(12).fontColor('#8E8E93')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)

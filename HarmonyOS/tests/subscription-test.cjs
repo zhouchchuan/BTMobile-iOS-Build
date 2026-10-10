@@ -10,7 +10,7 @@ const crypt={createMd:()=>{const h=crypto.createHash('sha256');return {update:as
  createAsyKeyGenerator:()=>({convertKey:async b=>({pubKey:crypto.createPublicKey({key:Buffer.from(b.data),format:'der',type:'spki'})})}),
  createVerify:()=>{let key;return{init:async k=>{key=k;},verify:async (a,b)=>crypto.verify('sha256',a.data,key,b.data)}}};
 const http={RequestMethod:{GET:'GET',POST:'POST'},HttpDataType:{STRING:0},createHttp:()=>({request:async()=>{networkCalls++;throw Error('offline');},destroy(){}})};
-const mocks={'./Native':native,'@ohos.net.http':{default:http},'@ohos.systemDateTime':{default:{getUptime:()=>1000,TimeType:{STARTUP:0}}},'@ohos.util':{default:util},'@ohos.security.cryptoFramework':{default:crypt}};
+const mocks={'./Native':native,'@ohos.hilog':{default:{info(){},warn(){}}},'@ohos.net.http':{default:http},'@ohos.systemDateTime':{default:{getUptime:()=>1000,TimeType:{STARTUP:0}}},'@ohos.util':{default:util},'@ohos.security.cryptoFramework':{default:crypt}};
 function load(name){if(cache.has(name))return cache.get(name);const sandbox={exports:{},Uint8Array,Array,Date,Math,Number,JSON,Error,Promise,Observed:c=>c,setInterval:()=>1,clearInterval(){},require:n=>mocks[n]||(n.startsWith('./')?load(n.slice(2)):{default:{}})};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(models,name+'.ets'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2021,experimentalDecorators:true}}).outputText,sandbox);cache.set(name,sandbox.exports);return sandbox.exports;}
 const p=load('SubscriptionPolicy'),v=load('SubscriptionVault'),s=load('SubscriptionService');
 const now=Math.floor(Date.now()/1000),id=crypto.randomUUID().toUpperCase();

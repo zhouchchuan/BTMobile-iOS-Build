@@ -60,13 +60,13 @@ export struct SubscriptionPanel {
             Button(this.paying ? '正在打开支付…' : '支付宝订阅').enabled(this.state.alipay && !this.paying).width('100%').backgroundColor('#F39A56').onClick(() => { this.pay('alipay'); })
             Button('微信支付订阅').enabled(this.state.wxpay && !this.paying).width('100%').backgroundColor('#34C759').onClick(() => { this.pay('wxpay'); })
             if (!this.state.alipay && !this.state.wxpay) { Text('支付尚未开放或订阅状态未同步，请刷新后查看。').fontSize(13).fontColor('#8E8E93') }
-            Button(this.state.busy ? '正在同步…' : '刷新订阅').enabled(!this.state.busy && this.state.ready).width('100%').fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.service.synchronize(true); })
+            Button(this.state.busy ? '正在同步…' : '刷新订阅').enabled(!this.state.busy).width('100%').fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.service.synchronize(true); })
             if (this.state.message) { Text(this.state.message).fontSize(13).fontColor('#8E8E93') }
             if (this.message) { Text(this.message).fontSize(13).fontColor('#995522') }
           }.width('100%').padding(20).backgroundColor(Color.White).borderRadius(22)
           Column({ space: 12 }) {
             Text('设备身份').fontSize(16).fontWeight(FontWeight.Medium)
-            Text('UUID：' + (this.state.deviceID || '正在读取')).fontSize(13).copyOption(CopyOptions.InApp)
+            Text('UUID：' + (this.state.deviceID || this.state.identityMessage)).fontSize(13).copyOption(CopyOptions.InApp)
             Text('订阅按设备身份生效，不会自动继承其他手机的订阅。卸载或清除应用数据可能丢失身份；请先保存 UUID，以便联系管理员恢复。').fontSize(12).fontColor('#8E8E93')
             Text('当前版本 V' + APP_VERSION).fontSize(13)
             Text(this.state.runtimeMessage).fontSize(12).fontColor('#8E8E93')

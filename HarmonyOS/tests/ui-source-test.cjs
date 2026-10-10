@@ -56,7 +56,9 @@ const fields=fs.readFileSync(path.join(root,'components/SettingField.ets'),'utf8
 assert(fields.includes('@Link value: string') && fields.includes('@Link value: boolean'));
 const settings=fs.readFileSync(path.join(root,'components/SettingsPanel.ets'),'utf8');
 assert(!settings.includes('this.numeric(') && !settings.includes('this.toggle('));
-assert(settings.includes('await this.load()') && settings.includes('saved.queueEnabled !== update.queueEnabled'));
+assert(settings.includes('await this.load()') && settings.includes('saved.queueEnabled !== settings.queueEnabled'));
+assert(settings.includes('await this.onSync()') && !settings.includes('saveQueue()'));
+assert(!settings.includes("Button('同步默认 Tracker')") && !settings.includes("'保存队列设置'"));
 const {matchesTask}=model('model/TaskFilter.ets');
 row.name='中文 Sample 视频'; row.id='abc123'; row.complete=false;
 assert(matchesTask(row,'sample 中文',0)); assert(matchesTask(row,'ABC123',0)); assert(!matchesTask(row,'不存在',0));
