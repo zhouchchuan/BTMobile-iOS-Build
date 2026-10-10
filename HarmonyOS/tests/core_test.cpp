@@ -110,6 +110,15 @@ int main(int argc,char** argv) {
     core.call({{"op","setNetworkSettings"},{"settings",{{"queueEnabled",false},{"seedEnabled",true}}}});
     std::this_thread::sleep_for(250ms);
     assert(core.call({{"op","tasks"}})["items"][0]["paused"]==true);
+    json completion;
+    for(int i=0;i<50;++i) {
+        completion=core.call({{"op","completionEvents"}});
+        if(!completion["events"].empty())break;
+        std::this_thread::sleep_for(100ms);
+    }
+    assert(completion["events"].size()==1 && completion["events"][0]["id"]==hash);
+    core.call({{"op","ackCompletion"},{"id",hash}});
+    assert(core.call({{"op","completionEvents"}})["events"].empty());
     auto stream=core.call({{"op","stream"},{"id",hash},{"index",0}});
     std::string url=stream.at("url"); auto slash=url.find('/',7);
     httplib::Client client(url.substr(0,slash)); auto response=client.Get(url.substr(slash),{{"Range","bytes=10-99"}});

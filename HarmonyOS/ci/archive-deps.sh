@@ -39,6 +39,7 @@ fi
 NOTICES="$ROOT/entry/src/main/resources/rawfile/licenses"
 mkdir -p "$NOTICES/7zip" "$NOTICES/bit7z"
 cp "$D/sevenzip-26.04/DOC/License.txt" "$NOTICES/7zip/"
+cp "$D/sevenzip-26.04/DOC/copying.txt" "$NOTICES/7zip/"
 cp "$D/sevenzip-26.04/DOC/unRarLicense.txt" "$NOTICES/7zip/"
 cp "$D/bit7z/LICENSE" "$NOTICES/bit7z/"
 # Ship patched MPL file and patch recipe, plus the exact corresponding LGPL

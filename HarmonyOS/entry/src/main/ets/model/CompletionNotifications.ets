@@ -27,7 +27,7 @@ export class CompletionNotifications {
           wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
         });
         await notificationManager.publish({ id: notificationId, label: event.id,
-          slotType: notificationManager.SlotType.SERVICE_INFORMATION,
+          notificationSlotType: notificationManager.SlotType.SERVICE_INFORMATION,
           content: { notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
             normal: { title: 'BTmobie · 下载完成', text: event.name || '下载任务已完成', additionalText: '点击查看任务' } },
           wantAgent: agent

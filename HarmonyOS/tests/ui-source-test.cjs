@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const ts = require(process.argv[2]);
 const sdkLoader = path.resolve(path.dirname(process.argv[2]), '../../..');
 const options = JSON.parse(fs.readFileSync(path.join(sdkLoader,'tsconfig.json'),'utf8')).compilerOptions;
-options.ets.components.push('TaskCard', 'SettingsPanel', 'Player');
+options.ets.components.push('TaskCard', 'SettingsPanel', 'Player', 'IconButton', 'TaskDetails');
 const root = path.join(__dirname, '..', 'entry', 'src', 'main', 'ets');
-const files = ['model/Native.ets', 'components/TaskCard.ets', 'components/SettingsPanel.ets', 'pages/Index.ets', 'entryability/EntryAbility.ets'];
+const files = ['model/Native.ets', 'model/IncomingLink.ets', 'model/TaskFilter.ets', 'model/CompletionNotifications.ets', 'components/TaskCard.ets', 'components/SettingsPanel.ets', 'components/IconButton.ets', 'components/TaskDetails.ets', 'pages/Index.ets', 'entryability/EntryAbility.ets'];
 for (const relative of files) {
   const text = fs.readFileSync(path.join(root,relative),'utf8');
   const parsed = ts.createSourceFile(relative,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.ETS,options);
@@ -35,4 +35,23 @@ assert(index.includes("deleteData: deleteData"));
 assert(index.includes('finally { this.extracting = false; }'));
 assert(!index.includes('await this.syncBackground()'));
 assert(fs.readFileSync(path.join(root,'components/TaskCard.ets'),'utf8').includes('@ObjectLink task: TaskState'));
-console.log('PASS: 5 ArkTS files parsed; same-ID task model updates progress/rates/peers; swipe/removal/retry source invariants. Not a full UI build.');
+function model(file) {
+  const input=fs.readFileSync(path.join(root,file),'utf8');
+  const result=ts.transpileModule(input,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText;
+  const context={exports:{},require:()=>sandbox.exports}; vm.runInNewContext(result,context); return context.exports;
+}
+const {incomingMagnet}=model('model/IncomingLink.ets');
+assert.equal(incomingMagnet('file:///secret'), '');
+assert.equal(incomingMagnet('magnet:?dn=onlyname'), '');
+assert.equal(incomingMagnet('magnet:?xt=urn:btih:abcd\nmalicious'), '');
+assert.equal(incomingMagnet('MAGNET:?xt=urn:btmh:1220abcd'), 'magnet:?xt=urn:btmh:1220abcd');
+assert.equal(incomingMagnet('magnet:?xt=urn%3Abtih%3Aabcd'), 'magnet:?xt=urn%3Abtih%3Aabcd');
+const {matchesTask}=model('model/TaskFilter.ets');
+row.name='中文 Sample 视频'; row.id='abc123'; row.complete=false;
+assert(matchesTask(row,'sample 中文',0)); assert(matchesTask(row,'ABC123',0)); assert(!matchesTask(row,'不存在',0));
+assert(!matchesTask(row,'',1)); row.complete=true; assert(matchesTask(row,'',1));
+const receive=index.slice(index.indexOf('receiveMagnet()'),index.indexOf('receiveNotificationTask()'));
+assert(!receive.includes('this.add()'));
+assert(index.includes("Text('确认添加下载任务')"));
+assert(index.includes("this.current = output"));
+console.log('PASS: 10 ArkTS sources parsed, model refresh, keyword/status filters, external magnet validation and confirmation, scoped deletion/retry invariants. Not a full UI build.');

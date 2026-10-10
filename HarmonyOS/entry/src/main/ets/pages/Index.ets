@@ -250,7 +250,7 @@ struct Index {
         this.textPath = item.path; this.text = fs.readTextSync(this.root + '/' + item.path); this.editing = false; this.splitText();
       } else if (['png','jpg','jpeg','webp','gif'].includes(extension)) {
         this.imagePath = this.root + '/' + item.path;
-      } else if (['zip','7z','rar','tar','gz','xz','bz2','tgz','txz','tbz','tbz2'].includes(extension) || /^(\d{3}|z\d{2}|r\d{2})$/.test(extension)) {
+      } else if (['zip','7z','rar','tar','gz','xz','bz2','zst','tgz','txz','tbz','tbz2'].includes(extension) || /^(\d{3,}|z\d{2,}|r\d{2,})$/.test(extension)) {
         this.archivePath = item.path; this.password = ''; this.archiveError = ''; this.percent = 0;
       } else if (['mp4','mkv','avi','mov','webm','m4v','mp3','flac','m4a','aac','ogg'].includes(extension)) {
         const match = await call({ op: 'resolve', path: item.path });
@@ -381,7 +381,8 @@ struct Index {
                     Text(this.fileSummary(item)).fontSize(11).fontColor('#AAAAAF').width('100%')
                   }.layoutWeight(1).onClick(() => { this.open(item); })
                   Text(item.directory ? '›' : bytes(item.size)).fontSize(12).fontColor('#8E8E93').constraintSize({ maxWidth: 62 }).textAlign(TextAlign.End)
-                }.padding({ left: 18, right: 18, top: 18, bottom: 18 }).width('100%').backgroundColor(Color.White).bindMenu([{ value: '更多操作', action: () => { this.actionPath = item.path; this.newName = item.name; } }], ResponseType.LongPress)
+                }.padding({ left: 18, right: 18, top: 18, bottom: 18 }).width('100%').backgroundColor(Color.White)
+                .gesture(LongPressGesture().onAction(() => { this.actionPath = item.path; this.newName = item.name; }))
               }.swipeAction({ end: this.swipeFile.bind(this, item.path, item.name) })
             }, (item: FileItem) => item.path + ':' + item.size.toString() + ':' + (item.modified ?? 0).toString())
           }.layoutWeight(1).backgroundColor(Color.White).borderRadius(24).clip(true).divider({ strokeWidth: 0.5, color: '#E5E5EA', startMargin: 18, endMargin: 18 }).margin({ left: 16, right: 16 })
