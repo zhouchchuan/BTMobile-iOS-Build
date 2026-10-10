@@ -2,8 +2,7 @@ import common from '@ohos.app.ability.common';
 import fs from '@ohos.file.fs';
 import picker from '@ohos.file.picker';
 import promptAction from '@ohos.promptAction';
-import backgroundTaskManager from '@ohos.resourceschedule.backgroundTaskManager';
-import wantAgent from '@ohos.app.ability.wantAgent';
+import { backgroundTransfer } from '../model/BackgroundTransfer';
 import preferences from '@ohos.data.preferences';
 import { call, files, peers, bytes, TaskInfo, TaskState, TorrentFile, PeerInfo } from '../model/Native';
 import { Player } from '../components/Player';
@@ -32,9 +31,6 @@ struct Index {
   private deletionRevision: number = 0;
   private pageVisible: boolean = false;
   @StorageLink('btmobileForeground') @Watch('foregroundChanged') foreground: boolean = true;
-  private backgroundActive: boolean = false;
-  private backgroundBusy: boolean = false;
-  private backgroundRetryAfter: number = 0;
   private preferencesStore: preferences.Preferences | undefined = undefined;
   private preferenceWrite: Promise<void> = Promise.resolve();
   private notifications: CompletionNotifications = new CompletionNotifications();
@@ -48,7 +44,7 @@ struct Index {
   @State notificationsEnabled: boolean = false;
   private readonly filters: string[] = ['全部', '完成', '下载中', '做种中', '已暂停', '校验文件', '获取元数据'];
   @State allowBackground: boolean = false;
-  @State backgroundMessage: string = '后台传输未启用';
+  @StorageLink('btmobileBackgroundMessage') backgroundMessage: string = '后台传输未启用';
   @State networkPort: string = '—';
   @State networkDht: string = '—';
   @State networkTrackers: string = '—';
@@ -102,6 +98,7 @@ struct Index {
     try {
       const result = await call({ op: 'init', root: this.root });
       this.ready = true; this.status = '';
+      backgroundTransfer.start(this.allowBackground);
       await this.refresh();
       this.receiveMagnet(); this.receiveNotificationTask();
       if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
@@ -135,6 +132,7 @@ struct Index {
     this.polling = true;
     try {
       const result = await call({ op: 'tasks' });
+      backgroundTransfer.observe(result.items ?? []);
       if (!this.pageVisible) return;
       const old = this.tasks;
       if ((result.deletionRevision ?? 0) > this.deletionRevision) {
@@ -149,9 +147,7 @@ struct Index {
         const display = networkDisplay(result.network);
         this.networkPort = display.port; this.networkDht = display.dht; this.networkTrackers = display.trackers;
       }
-      // OS authorization and file/Peer detail calls must not block task refresh.
-      // Deliver the persisted completion event before releasing background runtime.
-      this.notifications.deliver(getContext(this) as common.UIAbilityContext).finally(() => { this.syncBackground(); });
+      // BackgroundTransfer owns completion delivery and lifetime outside the page.
       this.refreshDetails();
     } catch (e) { this.status = (e as Error).message; }
     finally { this.polling = false; }
@@ -178,41 +174,19 @@ struct Index {
   }
   setAllowBackground(value: boolean): void {
     this.allowBackground = value;
-    this.backgroundRetryAfter = 0;
+    backgroundTransfer.setEnabled(value);
     this.preferenceWrite = this.preferenceWrite.then(async () => {
       const store = this.preferencesStore;
       if (!store) throw new Error('设置存储尚未就绪');
       await store.put('allowBackground', value); await store.flush();
     }).catch((e: Error) => { this.fail(new Error('后台设置保存失败：' + e.message)); });
-    this.syncBackground();
-  }
-  async syncBackground(): Promise<void> {
-    if (this.backgroundBusy || Date.now() < this.backgroundRetryAfter) return;
-    const active = this.allowBackground && this.tasks.some((task: TaskState) => task.active);
-    if (active === this.backgroundActive) {
-      this.backgroundMessage = active ? '后台持续传输已获系统批准' : this.allowBackground ? '设置已保存；有活动任务时申请后台传输' : '后台传输未启用';
-      return;
-    }
-    this.backgroundBusy = true;
-    const context = getContext(this) as common.UIAbilityContext;
-    try {
-      if (active) {
-        const agent = await wantAgent.getWantAgent({ wants: [{ bundleName: 'com.mxmall123.btmobile.hm', abilityName: 'EntryAbility' }], operationType: wantAgent.OperationType.START_ABILITY, requestCode: 1, wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG] });
-        await backgroundTaskManager.startBackgroundRunning(context, backgroundTaskManager.BackgroundMode.DATA_TRANSFER, agent);
-      } else await backgroundTaskManager.stopBackgroundRunning(context);
-      this.backgroundActive = active;
-      this.backgroundMessage = active ? '后台持续传输已获系统批准' : '后台持续传输已停止';
-    } catch(e) {
-      // Keep the user's saved preference; a system denial is a separate state.
-      this.backgroundRetryAfter = Date.now() + 60000;
-      this.backgroundMessage = '设置已保存，但系统后台传输操作失败：' + (e as Error).message;
-    } finally { this.backgroundBusy = false; }
   }
   async add(): Promise<void> {
     if (!this.magnet.trim() || !this.ready || this.adding) return;
     if (!/^magnet:\?/i.test(this.magnet.trim())) { this.fail(new Error('请输入有效的 magnet: 磁力链接')); return; }
     this.adding = true;
     try {
+      await backgroundTransfer.prepareTransfer();
       const admitted = await this.subscriptions.addTask(this.magnet.trim().replace(/^magnet:/i, 'magnet:'));
       if (!admitted) { this.showAdd = false; this.showSubscription = true; return; }
       this.magnet = ''; this.status = ''; this.showAdd = false; this.tab = 0; this.keyword = ''; this.taskFilter = 0; await this.refresh();
@@ -262,6 +236,7 @@ struct Index {
       if (extension === 'torrent') {
         const choice = await promptAction.showDialog({ title: '确认添加下载任务', message: item.name, buttons: [{ text: '取消', color: '#8E8E93' }, { text: '添加', color: '#F39A56' }] });
         if (choice.index !== 1) return;
+        await backgroundTransfer.prepareTransfer();
         if (!await this.subscriptions.addTask(item.path)) { this.showSubscription = true; return; }
         this.tab = 0; await this.refresh();
       }
@@ -384,7 +359,7 @@ struct Index {
             ForEach(this.visibleTasks(), (task: TaskState) => {
               ListItem() {
                 TaskCard({ task: task, onOpen: (id: string) => { this.selectedTask = id; this.refreshDetails(); },
-                  onPause: async (id: string, paused: boolean) => { try { await call({ op: paused ? 'resume' : 'pause', id: id }); await this.refresh(); } catch(e) { this.fail(e as Error); } } })
+                  onPause: async (id: string, paused: boolean) => { try { if (paused) await backgroundTransfer.prepareTransfer(); await call({ op: paused ? 'resume' : 'pause', id: id }); await this.refresh(); } catch(e) { this.fail(e as Error); } } })
               }.swipeAction({ end: this.swipeRemove.bind(this, task.id) })
             }, (t: TaskState) => t.id)
           }.layoutWeight(1).padding({ left: 16, right: 16 })
@@ -421,7 +396,7 @@ struct Index {
               Text('后台传输').fontSize(16).fontWeight(FontWeight.Medium)
               Row() { Text('允许后台下载 / 做种').fontSize(15).layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).selectedColor('#34C759').onChange((value: boolean) => { this.setAllowBackground(value); }) }
               Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
-              Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
+              Text('开启后，活动传输通过系统实况通知在后台／锁屏继续；无任务时自动停止。系统限制或长时间无传输可能挂起，以此处实际状态为准。').fontSize(13).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               SettingsPanel({ trackerRevision: this.subscriptionState.trackerRevision, runtimeMessage: this.subscriptionState.runtimeMessage,
                 notificationPermission: this.notificationsEnabled, onAuthorizeNotifications: async () => this.enableNotifications(),
@@ -453,7 +428,7 @@ struct Index {
           TaskDetails({ task: task, files: this.taskFiles, peers: this.peerRows, trackers: this.trackerRows, peersOpen: this.showPeers,
             onClose: () => { this.selectedTask = ''; this.showPeers = false; },
             onPeers: () => { this.showPeers = !this.showPeers; this.refreshDetails(); },
-            onPause: async () => { try { await call({ op: task.paused ? 'resume' : 'pause', id: task.id }); await this.refresh(); } catch(e) { this.fail(e as Error); } },
+            onPause: async () => { try { if (task.paused) await backgroundTransfer.prepareTransfer(); await call({ op: task.paused ? 'resume' : 'pause', id: task.id }); await this.refresh(); } catch(e) { this.fail(e as Error); } },
             onRefresh: async () => { try { await call({ op: 'refreshTask', id: task.id }); await this.refresh(); promptAction.showToast({ message: task.paused ? '任务状态已刷新，保持暂停' : '任务状态已刷新，已请求重新发现连接' }); } catch(e) { this.fail(e as Error); } },
             onRemove: () => { this.removeTaskId = task.id; }, onPlay: (file: TorrentFile) => { this.playTask(file); } })
         }, (task: TaskState) => task.id)

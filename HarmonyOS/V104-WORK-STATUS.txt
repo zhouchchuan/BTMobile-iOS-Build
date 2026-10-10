@@ -1,0 +1,25 @@
+BTmobie HarmonyOS V1.0.4 / versionCode 10004
+Source copied from frozen V1.0.3 baseline, commit b1e0d0703bf1758a772a0fe1b917df1487d7d9c0.
+
+Scope: background/lock-screen transfer lifetime; task detail refresh outline.
+Keep libtorrent settings/network policy, archives, AV1/player, subscriptions,
+device identity and signing identity unchanged. No app uninstall/data deletion.
+Store distribution/IAP/server changes are outside this release.
+
+Background transfer uses captured EntryAbility context, foreground acquisition,
+independent task observation, API12 dataTransfer notification ID and real-byte
+LIVE_VIEW progress. Completion notification promises no longer gate acquisition.
+API15/20 cancel/suspend/active callbacks and foreground state reconciliation are
+capability gated. Show actual errors/cancellations instead of stale approved text.
+No fake audio, manufactured progress, permission bypass or restart loop.
+Idle seeding can still be suspended by system low-traffic policy.
+
+Refresh preserves its reannounce/peer-discovery action, paused tasks stay paused.
+SVG outline is not overridden by Image.fillColor. Other icon tint behavior preserved.
+Version identity: Htorrent/1.0.4 and -HT1040-. Actual tracker integration test required.
+
+V1.0.3 phone preference inspected: allowBackground=true. Existing logs did not
+provide conclusive cancellation reason; immediate-stop root cause is not yet
+claimed fully confirmed. New lifecycle diagnostics contain no media/UUID/magnets.
+Host unit regression passed. Full ArkTS/native build and real-device background
+and lock-screen byte progression still pending; update this record with evidence.

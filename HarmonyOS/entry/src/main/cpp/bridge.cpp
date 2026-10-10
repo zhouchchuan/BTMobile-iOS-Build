@@ -409,8 +409,8 @@ public:
 #endif
             evaluateNetworkAccess();
             lt::settings_pack settings = settingsPack();
-            settings.set_str(lt::settings_pack::user_agent, "Htorrent/1.0.3");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT1030-");
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/1.0.4");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT1040-");
             // 6882 (or the user's port) is a preference, not a restriction.
             // Preserve libtorrent's port retries, OS fallback, IPv4/IPv6 peer
             // discovery, outgoing ephemeral ports and NAT mapping negotiation.
