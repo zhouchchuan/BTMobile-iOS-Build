@@ -3,6 +3,7 @@ oh_modules/
 **/build/
 **/.cxx/
 native-deps/
+entry/libs/
 local.properties
 *.p12
 *.p7b

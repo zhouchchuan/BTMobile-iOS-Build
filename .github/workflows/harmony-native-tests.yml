@@ -15,7 +15,7 @@ jobs:
       - name: Prepare test dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libboost-dev libssl-dev libarchive-dev
+          sudo apt-get install -y libboost-dev libssl-dev libarchive-dev 7zip zip
           mkdir -p HarmonyOS/native-deps/headers/nlohmann
           git clone https://github.com/arvidn/libtorrent.git HarmonyOS/native-deps/libtorrent
           git -C HarmonyOS/native-deps/libtorrent checkout 75a08775ba32bdb62157f9e49a786ecdd9f0a0fa
@@ -24,8 +24,11 @@ jobs:
           curl -fL --retry 3 https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.3/httplib.h -o HarmonyOS/native-deps/headers/httplib.h
       - name: Compile and exercise real libtorrent engine
         run: |
+          bash HarmonyOS/ci/archive-deps.sh host
+          export LD_LIBRARY_PATH="$PWD/HarmonyOS/native-deps/host-archive"
           cmake -S HarmonyOS/tests -B HarmonyOS/build-host -DCMAKE_BUILD_TYPE=Release
           cmake --build HarmonyOS/build-host -j3
           HarmonyOS/build-host/settings-test
           TEST_DIR=$(mktemp -d)
           timeout 120 HarmonyOS/build-host/core-test "$TEST_DIR"
+          python3 HarmonyOS/tests/archive-fixtures.py HarmonyOS/build-host/archive-test

@@ -9,8 +9,12 @@ import { call, files, peers, bytes, TaskInfo, TaskState, TorrentFile, PeerInfo }
 import { Player } from '../components/Player';
 import { TaskCard } from '../components/TaskCard';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { IconButton } from '../components/IconButton';
+import { TaskDetails } from '../components/TaskDetails';
+import { matchesTask } from '../model/TaskFilter';
+import { CompletionNotifications } from '../model/CompletionNotifications';
 
-interface FileItem { name: string; path: string; directory: boolean; size: number }
+interface FileItem { name: string; path: string; directory: boolean; size: number; modified?: number }
 interface TextPart { value: string; link: boolean }
 
 @Entry
@@ -28,6 +32,16 @@ struct Index {
   private backgroundRetryAfter: number = 0;
   private preferencesStore: preferences.Preferences | undefined = undefined;
   private preferenceWrite: Promise<void> = Promise.resolve();
+  private notifications: CompletionNotifications = new CompletionNotifications();
+  @StorageLink('incomingMagnet') @Watch('receiveMagnet') incomingMagnet: string = '';
+  @StorageLink('notificationTask') @Watch('receiveNotificationTask') notificationTask: string = '';
+  @State showAdd: boolean = false;
+  @State adding: boolean = false;
+  @State keyword: string = '';
+  @State taskFilter: number = 0;
+  @State trackerRows: string[] = [];
+  @State notificationsEnabled: boolean = false;
+  private readonly filters: string[] = ['全部', '完成', '下载中', '做种中', '已暂停', '校验文件', '获取元数据'];
   @State allowBackground: boolean = false;
   @State backgroundMessage: string = '后台传输未启用';
   @State networkSummary: string = '正在读取网络状态…';
@@ -73,12 +87,29 @@ struct Index {
       const result = await call({ op: 'init', root: this.root });
       this.version = result.version ?? ''; this.ready = true; this.status = '';
       await this.refresh();
+      this.receiveMagnet(); this.receiveNotificationTask();
+      this.notificationsEnabled = await this.notifications.enabled();
       if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
     } catch (e) { this.status = '核心启动失败：' + (e as Error).message; }
     this.list();
   }
   aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; }
   foregroundChanged(): void { if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
+  receiveMagnet(): void {
+    if (!this.ready || !this.incomingMagnet) return;
+    this.magnet = this.incomingMagnet; this.incomingMagnet = ''; this.tab = 0; this.showAdd = true;
+  }
+  receiveNotificationTask(): void {
+    if (!this.ready || !this.notificationTask) return;
+    const id = this.notificationTask; this.notificationTask = ''; this.tab = 0;
+    if (this.tasks.some((task: TaskState) => task.id === id)) { this.selectedTask = id; this.refreshDetails(); }
+    else promptAction.showToast({ message: '此任务已被移除，可在文件管理中查看保留的文件' });
+  }
+  visibleTasks(): TaskState[] { return this.tasks.filter((task: TaskState) => matchesTask(task, this.keyword, this.taskFilter)); }
+  async enableNotifications(): Promise<void> {
+    try { await this.notifications.authorize(getContext(this) as common.UIAbilityContext); this.notificationsEnabled = await this.notifications.enabled(); }
+    catch(e) { this.fail(new Error('通知尚未授权，请在系统设置中允许 BTmobie 发送通知。')); }
+  }
   async refresh(): Promise<void> {
     if (this.polling) return;
     this.polling = true;
@@ -103,7 +134,8 @@ struct Index {
         if (net.trackerError) this.networkDetail += '\n' + net.trackerError;
       }
       // OS authorization and file/Peer detail calls must not block task refresh.
-      this.syncBackground();
+      // Deliver the persisted completion event before releasing background runtime.
+      this.notifications.deliver(getContext(this) as common.UIAbilityContext).finally(() => { this.syncBackground(); });
       this.refreshDetails();
     } catch (e) { this.status = (e as Error).message; }
     finally { this.polling = false; }
@@ -118,6 +150,8 @@ struct Index {
       if (selected) {
         const items = await files(selected);
         if (this.selectedTask === selected) this.taskFiles = items;
+        const trackers = (await call({ op: 'trackers', id: selected })).trackers ?? [];
+        if (this.selectedTask === selected) this.trackerRows = trackers;
         if (this.showPeers && this.selectedTask === selected) {
           const rows = await peers(selected);
           if (this.selectedTask === selected && this.showPeers) this.peerRows = rows;
@@ -159,16 +193,24 @@ struct Index {
     } finally { this.backgroundBusy = false; }
   }
   async add(): Promise<void> {
-    if (!this.magnet.trim() || !this.ready) return;
-    try { await call({ op: 'add', uri: this.magnet.trim() }); this.magnet = ''; this.status = ''; await this.refresh(); }
+    if (!this.magnet.trim() || !this.ready || this.adding) return;
+    if (!/^magnet:\?/i.test(this.magnet.trim())) { this.fail(new Error('请输入有效的 magnet: 磁力链接')); return; }
+    this.adding = true;
+    try {
+      await call({ op: 'add', uri: this.magnet.trim().replace(/^magnet:/i, 'magnet:') });
+      this.magnet = ''; this.status = ''; this.showAdd = false; this.tab = 0; this.keyword = ''; this.taskFilter = 0; await this.refresh();
+      // A user-confirmed download is a suitable moment to request notification consent.
+      if (!this.notificationsEnabled) await this.enableNotifications();
+    }
     catch(e) { this.fail(e as Error); }
+    finally { this.adding = false; }
   }
   list(): void {
     try {
       this.entries = fs.listFileSync(this.root + '/' + this.current).filter((name: string) => name !== '.state').map((name: string): FileItem => {
         const path = this.current ? this.current + '/' + name : name;
         const stat = fs.statSync(this.root + '/' + path);
-        return { name: name, path: path, directory: stat.isDirectory(), size: stat.size };
+        return { name: name, path: path, directory: stat.isDirectory(), size: stat.size, modified: stat.mtime };
       }).sort((a: FileItem, b: FileItem) => a.directory !== b.directory ? a.directory ? -1 : 1 : a.name.localeCompare(b.name));
     } catch(e) { this.fail(e as Error); }
   }
@@ -208,7 +250,7 @@ struct Index {
         this.textPath = item.path; this.text = fs.readTextSync(this.root + '/' + item.path); this.editing = false; this.splitText();
       } else if (['png','jpg','jpeg','webp','gif'].includes(extension)) {
         this.imagePath = this.root + '/' + item.path;
-      } else if (['zip','7z','rar','tar','gz','xz','bz2','001'].includes(extension)) {
+      } else if (['zip','7z','rar','tar','gz','xz','bz2','tgz','txz','tbz','tbz2'].includes(extension) || /^(\d{3}|z\d{2}|r\d{2})$/.test(extension)) {
         this.archivePath = item.path; this.password = ''; this.archiveError = ''; this.percent = 0;
       } else if (['mp4','mkv','avi','mov','webm','m4v','mp3','flac','m4a','aac','ogg'].includes(extension)) {
         const match = await call({ op: 'resolve', path: item.path });
@@ -230,8 +272,12 @@ struct Index {
     if (this.extracting || !this.archivePath) return;
     this.extracting = true; this.percent = 0; this.archiveError = '';
     try {
-      await call({ op: 'extract', path: this.archivePath, output: this.archivePath + '-解压-' + Date.now().toString(), password: this.password });
-      this.archivePath = ''; this.password = ''; this.list(); promptAction.showToast({ message: '解压完成' });
+      const base = this.archivePath.replace(/(?:\.part\d+\.rar|\.(?:7z|zip)\.\d+|\.tar\.(?:gz|xz|bz2|zst)|\.(?:7z|zip|rar|tar|gz|xz|bz2|zst|tgz|txz|tbz2?)|\.[zr]\d+)$/i, '');
+      let output = base + '-解压';
+      let suffix = 2;
+      while (fs.accessSync(this.root + '/' + output)) { output = base + '-解压 (' + suffix.toString() + ')'; suffix++; }
+      await call({ op: 'extract', path: this.archivePath, output: output, password: this.password });
+      this.archivePath = ''; this.password = ''; this.current = output; this.tab = 1; this.list(); promptAction.showToast({ message: '解压完成，已打开独立文件夹' });
     } catch(e) { this.archiveError = (e as Error).message; this.list(); }
     finally { this.extracting = false; }
   }
@@ -268,68 +314,102 @@ struct Index {
       Button('删除').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteFile(path); })
     }.padding(8)
   }
-  icon(item: FileItem): string {
-    if (item.directory) return '📁';
+  icon(item: FileItem): Resource {
+    if (item.directory) return $r('app.media.file_folder');
     const e = item.name.split('.').pop()?.toLowerCase() ?? '';
-    if (['zip','7z','rar','tar','gz','xz','001'].includes(e)) return '📦';
-    if (['mp4','mkv','mov','avi','webm'].includes(e)) return '🎬';
-    if (['mp3','m4a','flac','aac'].includes(e)) return '🎵';
-    if (['png','jpg','jpeg','webp'].includes(e)) return '🖼';
-    return '📄';
+    if (['zip','7z','rar','tar','gz','xz','bz2','zst','tgz','txz','tbz','tbz2'].includes(e) || /^(\d{3,}|z\d{2,}|r\d{2,})$/.test(e)) return $r('app.media.file_archive');
+    if (['mp4','mkv','mov','avi','webm','mp3','m4a','flac','aac'].includes(e)) return $r('app.media.file_video');
+    if (['png','jpg','jpeg','webp','gif'].includes(e)) return $r('app.media.file_image');
+    return $r('app.media.file_text');
+  }
+  fileSummary(item: FileItem): string {
+    const type = item.directory ? '文件夹' : (item.name.split('.').pop() ?? '文件').toUpperCase();
+    if (!item.modified) return type;
+    const date = new Date(item.modified * 1000);
+    return type + ' · ' + (date.getMonth() + 1).toString().padStart(2, '0') + '-' + date.getDate().toString().padStart(2, '0') + ' ' + date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
+  }
+  backFiles(): void {
+    if (this.current) { this.current = this.current.split('/').slice(0, -1).join('/'); this.list(); }
+    else this.tab = 0;
   }
   build() {
     Stack() {
       Column() {
-        Row() { Text('BTMobile').fontSize(30).fontWeight(FontWeight.Bold).layoutWeight(1); Text('鸿蒙 · 0.1.2').fontSize(13).fontColor('#888888') }.padding(20)
+        Row({ space: 12 }) {
+          if (this.tab !== 0) { IconButton({ icon: $r('app.media.nav_back'), label: this.tab === 1 ? '返回上一级' : '返回任务', action: () => { if (this.tab === 1) this.backFiles(); else this.tab = 0; } }) }
+          Text(this.tab === 0 ? 'BTmobie' : this.tab === 1 ? (this.current.split('/').pop() || '文件管理') : '设置').fontSize(this.tab === 0 ? 32 : 18).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          if (this.tab === 1) {
+            Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
+          } else { Text('0.1.3').fontSize(12).fontColor('#8E8E93') }
+        }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 12 })
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
         if (this.tab === 0) {
-          Text(this.networkSummary).fontSize(12).fontColor('#666666').padding({ left: 16, right: 16 })
-          Row({ space: 8 }) { TextInput({ placeholder: '粘贴磁力链接', text: this.magnet }).onChange((v: string) => { this.magnet = v; }).layoutWeight(1); Button('添加').enabled(this.ready).backgroundColor('#F39A56').onClick(() => { this.add(); }) }.padding(16)
+          Search({ value: this.keyword, placeholder: '搜索任务名称或 Hash' }).textFont({ size: 15 }).height(44).backgroundColor('#EFEFF0').borderRadius(24).margin({ left: 18, right: 18, bottom: 12 }).onChange((v: string) => { this.keyword = v; })
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(this.filters, (label: string, index: number) => {
+                Button(label).fontSize(13).fontWeight(FontWeight.Medium).height(32).padding({ left: 13, right: 13 }).fontColor(this.taskFilter === index ? Color.White : '#202022').backgroundColor(this.taskFilter === index ? '#F39A56' : Color.Transparent).onClick(() => { this.taskFilter = index; })
+              })
+            }.padding({ left: 18, right: 18 })
+          }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%').margin({ bottom: 12 })
+          if (this.visibleTasks().length === 0) {
+            Column({ space: 12 }) {
+              Image($r('app.media.welcome')).width(64).height(64).margin({ bottom: 8 })
+              Text(this.tasks.length === 0 ? '欢迎使用 BTmobie' : '没有匹配的任务').fontSize(22).fontWeight(FontWeight.Bold)
+              Text(this.tasks.length === 0 ? '点击左下角的“＋”添加磁力链接，也可以从文件管理打开 Torrent 文件。' : '试试其他关键词，或选择“全部”查看任务。').fontSize(14).fontColor('#8E8E93').textAlign(TextAlign.Center).lineHeight(21).padding({ left: 26, right: 26 })
+            }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
+          } else {
           List({ space: 12 }) {
-            ForEach(this.tasks, (task: TaskState) => {
+            ForEach(this.visibleTasks(), (task: TaskState) => {
               ListItem() {
                 TaskCard({ task: task, onOpen: (id: string) => { this.selectedTask = id; this.refreshDetails(); },
                   onPause: async (id: string, paused: boolean) => { try { await call({ op: paused ? 'resume' : 'pause', id: id }); await this.refresh(); } catch(e) { this.fail(e as Error); } } })
               }.swipeAction({ end: this.swipeRemove.bind(this, task.id) })
             }, (t: TaskState) => t.id)
           }.layoutWeight(1).padding({ left: 16, right: 16 })
+          }
         } else if (this.tab === 1) {
-          Row() { Button('上一级').enabled(this.current.length > 0).onClick(() => { this.current = this.current.split('/').slice(0,-1).join('/'); this.list(); }); Text(this.current || '下载目录').fontSize(14).layoutWeight(1).padding(10); Button('导入').onClick(() => { this.importFile(); }); Button('刷新').onClick(() => { this.list(); }) }.padding(12)
-          List({ space: 12 }) {
+          Text('当前下载目录：BTmobie').fontSize(13).fontColor('#8E8E93').padding({ top: 14, bottom: 20 })
+          List({ space: 0 }) {
             ForEach(this.entries, (item: FileItem) => {
               ListItem() {
                 Row({ space: 12 }) {
-                  Text(this.icon(item)).fontSize(28).onClick(() => { this.open(item); })
+                  Image(this.icon(item)).width(25).height(29).objectFit(ImageFit.Contain).onClick(() => { this.open(item); })
                   Column({ space: 5 }) {
-                    Text(item.name).fontSize(16).width('100%').maxLines(3)
-                    Text(item.directory ? '文件夹' : bytes(item.size)).fontSize(12).fontColor('#888888').width('100%')
+                    Text(item.name).fontSize(15).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Text(this.fileSummary(item)).fontSize(11).fontColor('#AAAAAF').width('100%')
                   }.layoutWeight(1).onClick(() => { this.open(item); })
-                  Button('⋯').onClick(() => { this.actionPath = item.path; this.newName = item.name; })
-                }.padding(16).width('100%').borderRadius(20).backgroundColor(Color.White)
+                  Text(item.directory ? '›' : bytes(item.size)).fontSize(12).fontColor('#8E8E93').constraintSize({ maxWidth: 62 }).textAlign(TextAlign.End)
+                }.padding({ left: 18, right: 18, top: 18, bottom: 18 }).width('100%').backgroundColor(Color.White).bindMenu([{ value: '更多操作', action: () => { this.actionPath = item.path; this.newName = item.name; } }], ResponseType.LongPress)
               }.swipeAction({ end: this.swipeFile.bind(this, item.path, item.name) })
-            }, (item: FileItem) => item.path + ':' + item.size.toString())
-          }.layoutWeight(1).padding({ left: 16, right: 16 })
+            }, (item: FileItem) => item.path + ':' + item.size.toString() + ':' + (item.modified ?? 0).toString())
+          }.layoutWeight(1).backgroundColor(Color.White).borderRadius(24).clip(true).divider({ strokeWidth: 0.5, color: '#E5E5EA', startMargin: 18, endMargin: 18 }).margin({ left: 16, right: 16 })
         } else {
           Scroll() {
             Column({ space: 16 }) {
               Column({ space: 12 }) {
-              Text('原生下载核心').fontSize(20).fontWeight(FontWeight.Bold)
+              Text('原生下载核心').fontSize(16).fontWeight(FontWeight.Medium)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('Peer 客户端标志：Htorrent 0.1.2').fontSize(14)
+              Text('Peer 客户端标志：Htorrent 0.1.3').fontSize(13)
               Text(this.networkSummary).fontSize(14)
               Text(this.networkDetail).fontSize(12).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
-              Text('后台传输').fontSize(20).fontWeight(FontWeight.Bold)
-              Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.setAllowBackground(value); }) }
+              Text('后台传输').fontSize(16).fontWeight(FontWeight.Medium)
+              Row() { Text('允许后台下载 / 做种').fontSize(15).layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).selectedColor('#34C759').onChange((value: boolean) => { this.setAllowBackground(value); }) }
               Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               SettingsPanel({ onSaved: () => { this.refresh(); } })
               Column({ space: 12 }) {
-              Text('版本信息').fontSize(20).fontWeight(FontWeight.Bold)
-              Text('V0.1.2 调试版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
+                Text('下载完成通知').fontSize(16).fontWeight(FontWeight.Medium)
+                Text(this.notificationsEnabled ? '系统通知已授权' : '未授权，请允许通知以接收下载完成提醒').fontSize(13).fontColor('#8E8E93')
+                Button('检查 / 开启通知').fontSize(14).fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.enableNotifications(); })
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+              Column({ space: 12 }) {
+              Text('版本信息').fontSize(16).fontWeight(FontWeight.Medium)
+              Text('BTmobie V0.1.3 调试版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(13).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
@@ -337,25 +417,34 @@ struct Index {
           }.layoutWeight(1)
         }
         Row() {
-          Button('任务').layoutWeight(1).onClick(() => { this.tab = 0; })
-          Button('文件').layoutWeight(1).onClick(() => { this.tab = 1; this.list(); })
-          Button('设置').layoutWeight(1).onClick(() => { this.tab = 2; })
-        }.padding(16).width('100%')
-      }.height('100%').width('100%').backgroundColor('#F5F5F7')
+          IconButton({ icon: $r('app.media.nav_add'), label: '添加磁力任务', selected: this.tab === 0, action: () => { this.tab = 0; this.showAdd = true; } })
+          Blank()
+          IconButton({ icon: $r('app.media.nav_folder'), label: '文件管理', selected: this.tab === 1, action: () => { this.tab = this.tab === 1 ? 0 : 1; this.list(); } })
+          Blank()
+          IconButton({ icon: $r('app.media.nav_gear'), label: '设置', selected: this.tab === 2, action: () => { this.tab = this.tab === 2 ? 0 : 2; } })
+        }.padding({ left: 24, right: 24, top: 14, bottom: 16 }).width('100%')
+      }.height('100%').width('100%').backgroundColor(this.tab === 0 ? '#FFFFFF' : '#F2F2F7')
       if (this.selectedTask) {
-        Column() {
-          Row() { Text('任务文件 · 点击视频边下边播').layoutWeight(1); Button('关闭').onClick(() => { this.selectedTask = ''; }) }.padding(16)
-          Row({ space: 12 }) {
-            Button(this.showPeers ? '收起 Peer' : '查看 Peer').onClick(async () => { this.showPeers = !this.showPeers; if(this.showPeers) this.peerRows = await peers(this.selectedTask); })
-            Button('移除任务').onClick(() => {
-              this.removeTaskId = this.selectedTask;
-            })
+        ForEach(this.tasks.filter((task: TaskState) => task.id === this.selectedTask), (task: TaskState) => {
+          TaskDetails({ task: task, files: this.taskFiles, peers: this.peerRows, trackers: this.trackerRows, peersOpen: this.showPeers,
+            onClose: () => { this.selectedTask = ''; this.showPeers = false; },
+            onPeers: () => { this.showPeers = !this.showPeers; this.refreshDetails(); },
+            onPause: async () => { try { await call({ op: task.paused ? 'resume' : 'pause', id: task.id }); await this.refresh(); } catch(e) { this.fail(e as Error); } },
+            onRefresh: async () => { try { await call({ op: 'refreshTask', id: task.id }); await this.refresh(); promptAction.showToast({ message: '任务状态已刷新，已请求重新发现连接' }); } catch(e) { this.fail(e as Error); } },
+            onRemove: () => { this.removeTaskId = task.id; }, onPlay: (file: TorrentFile) => { this.playTask(file); } })
+        }, (task: TaskState) => task.id)
+      }
+      if (this.showAdd) {
+        Column().width('100%').height('100%').backgroundColor('#55000000').onClick(() => { if (!this.adding) this.showAdd = false; })
+        Column({ space: 16 }) {
+          Text('确认添加下载任务').fontSize(20).fontWeight(FontWeight.Bold)
+          Text('检查磁力链接后点击添加，下载将保存到文件管理。').fontSize(13).fontColor('#8E8E93')
+          TextArea({ text: this.magnet, placeholder: '粘贴 magnet: 磁力链接' }).fontSize(13).height(136).onChange((v: string) => { this.magnet = v; })
+          Row({ space: 14 }) {
+            Button('取消').fontColor('#202022').backgroundColor('#EFEFF0').layoutWeight(1).enabled(!this.adding).onClick(() => { this.showAdd = false; this.magnet = ''; })
+            Button(this.adding ? '正在添加…' : '添加任务').backgroundColor('#F39A56').layoutWeight(1).enabled(this.ready && !this.adding).onClick(() => { this.add(); })
           }
-          if (this.showPeers) {
-            Scroll() { Column({ space: 6 }) { ForEach(this.peerRows, (p: PeerInfo) => { Text(p.address + ' · ' + p.client + ' · ↓' + bytes(p.download) + ' ↑' + bytes(p.upload)).fontSize(11).width('100%') }) }.padding(12) }.constraintSize({ maxHeight: 180 }).width('100%')
-          }
-          List() { ForEach(this.taskFiles, (file: TorrentFile) => { ListItem() { Column({ space: 8 }) { Text(file.name).width('100%'); Text(bytes(file.done) + ' / ' + bytes(file.size)).fontSize(12).fontColor('#777777').width('100%') }.padding(16).onClick(() => { this.playTask(file); }) } }) }.layoutWeight(1)
-        }.width('100%').height('100%').backgroundColor(Color.White)
+        }.width('90%').padding(24).borderRadius(26).backgroundColor(Color.White)
       }
       if (this.textPath) {
         Column() {

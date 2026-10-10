@@ -20,6 +20,7 @@
 #include <httplib.h>
 #include "range.hpp"
 #include "bt_settings.hpp"
+#include "archive_engine.hpp"
 #ifdef BTMOBILE_OHOS
 #include "ohos_network.hpp"
 #include <hilog/log.h>
@@ -65,6 +66,15 @@ class Core {
     std::set<std::string> pendingDeletes;
     std::string deletionMessage;
     int deletionRevision = 0;
+    std::set<std::string> completionArmed, completionSeen;
+    json completionPending = json::object();
+    void persistCompletions() {
+        auto path = root / ".state" / "completions.json";
+        std::ofstream out(path.string() + ".tmp");
+        out << json{{"seen", completionSeen}, {"pending", completionPending}}.dump(); out.close();
+        if (!out) throw std::runtime_error("无法保存下载完成事件");
+        fs::rename(path.string() + ".tmp", path);
+    }
     static std::string listenAddresses(int value) {
         return "0.0.0.0:" + std::to_string(value) + ",[::]:" + std::to_string(value);
     }
@@ -206,6 +216,21 @@ class Core {
     void saveAlerts() {
         std::vector<lt::alert*> alerts; session->pop_alerts(&alerts);
         for (auto a : alerts) {
+            // Arm only a genuine download transition. Checking/restoring an existing
+            // complete file must not generate a fresh download-complete notification.
+            if (auto changed = lt::alert_cast<lt::state_changed_alert>(a)) {
+                if (changed->handle.is_valid() && changed->state == lt::torrent_status::downloading)
+                    completionArmed.insert(id(changed->handle));
+            }
+            if (auto finished = lt::alert_cast<lt::torrent_finished_alert>(a)) {
+                if (finished->handle.is_valid()) {
+                    auto key = id(finished->handle);
+                    if (tasks.count(key) && completionArmed.erase(key) && !completionSeen.count(key)) {
+                        completionSeen.insert(key); completionPending[key] = finished->handle.status().name;
+                        persistCompletions();
+                    }
+                }
+            }
             if (auto deleted = lt::alert_cast<lt::torrent_deleted_alert>(a)) {
                 std::ostringstream key; key << deleted->info_hashes.get_best(); pendingDeletes.erase(key.str());
                 deletionMessage = "任务下载数据已删除"; ++deletionRevision;
@@ -316,63 +341,10 @@ class Core {
         ensureComplete(source);
         auto destination = checked(j.at("output"));
         if (fs::exists(destination)) throw std::runtime_error("目标目录已存在，请使用新的目录名称");
-        Utf8Locale utf8;
-        auto reader = archive_read_new();
-        struct Reader { archive* a; ~Reader(){ archive_read_free(a); } } cleanup{reader};
-        archive_read_support_filter_all(reader); archive_read_support_format_all(reader);
-        std::string password = j.value("password", "");
-        if (!password.empty()) archive_read_add_passphrase(reader, password.c_str());
-        auto failure = [&]() -> std::runtime_error {
-            std::string message = archive_error_string(reader) ? archive_error_string(reader) : "";
-            std::transform(message.begin(), message.end(), message.begin(), [](unsigned char c){return std::tolower(c);});
-            if (message.find("encrypt") != message.npos && message.find("not supported") != message.npos)
-                return std::runtime_error("已识别加密压缩包，但当前解压引擎不支持此加密方式；这不代表文件损坏");
-            if (message.find("password") != message.npos || message.find("passphrase") != message.npos)
-                return std::runtime_error(password.empty() ? "此压缩包已加密，请输入密码后重试" : "密码错误，请重新输入密码");
-            if (message.find("unsupported") != message.npos || message.find("not supported") != message.npos)
-                return std::runtime_error("暂不支持此压缩方式：" + message);
-            if (message.find("truncated") != message.npos || message.find("unexpected end") != message.npos)
-                return std::runtime_error("压缩包数据不完整或分卷缺失，请检查全部分卷是否齐全");
-            if (message.find("crc") != message.npos || message.find("checksum") != message.npos)
-                return std::runtime_error("压缩包校验失败：文件内容异常或密码不正确，请检查后重试");
-            return std::runtime_error("解压未完成：" + (message.empty() ? std::string("解压引擎未返回具体原因") : message));
-        };
-        if (archive_read_open_filename(reader, source.c_str(), 65536) != ARCHIVE_OK) throw failure();
-        fs::create_directories(destination);
-        archive_entry* entry = nullptr;
-        int result; auto sourceSize = fs::file_size(source);
-        while ((result = archive_read_next_header(reader, &entry)) != ARCHIVE_EOF) {
-            if (result != ARCHIVE_OK && result != ARCHIVE_WARN) throw failure();
-            if (!entry) throw failure();
-            // A filename conversion warning is not archive corruption. Accept it
-            // only when the engine can still provide the original UTF-8 name.
-            auto utf8Name = archive_entry_pathname_utf8(entry);
-            if (result == ARCHIVE_WARN) {
-                std::string warning = archive_error_string(reader) ? archive_error_string(reader) : "";
-                bool nameWarning = warning.find("convert") != warning.npos || warning.find("conversion") != warning.npos || warning.find("locale") != warning.npos;
-                if (!nameWarning || !utf8Name) throw failure();
-            }
-            if (cancelArchive) throw std::runtime_error("解压已取消，已保留部分文件");
-            auto nativeName = archive_entry_pathname(entry);
-            std::string name = utf8Name ? utf8Name : nativeName ? nativeName : "";
-            if (!safeArchivePath(name) || archive_entry_symlink(entry) || archive_entry_hardlink(entry)) throw std::runtime_error("压缩包含有不安全路径，已停止解压");
-            std::replace(name.begin(),name.end(),'\\','/');
-            auto output = destination / name;
-            if (archive_entry_filetype(entry) == AE_IFDIR) fs::create_directories(output);
-            else if (archive_entry_filetype(entry) == AE_IFREG) {
-                fs::create_directories(output.parent_path());
-                if (fs::exists(output)) throw std::runtime_error("压缩包含有重复文件名，已停止以免覆盖文件");
-                std::ofstream f(output, std::ios::binary); char buffer[65536]; la_ssize_t n;
-                if (!f) throw std::runtime_error("无法创建解压文件，请检查空间与文件名");
-                while ((n = archive_read_data(reader, buffer, sizeof buffer)) > 0) {
-                    if (cancelArchive) throw std::runtime_error("解压已取消，已保留部分文件");
-                    f.write(buffer, n); if (!f) throw std::runtime_error("无法写入文件，请检查剩余空间");
-                    archiveProgress = sourceSize ? std::min(99LL, archive_filter_bytes(reader, -1) * 100 / static_cast<long long>(sourceSize)) : 0;
-                }
-                if (n < 0) throw failure();
-            } else throw std::runtime_error("压缩包包含不支持的特殊文件");
-        }
-        if (result != ARCHIVE_EOF) throw failure();
+        auto first = btmobile::archiveFirstVolume(source, [this](fs::path const& p){
+            checked(fs::relative(p, root).generic_string()); ensureComplete(p);
+        });
+        btmobile::extractArchive(first, destination, j.value("password", ""), archiveProgress, cancelArchive);
         archiveProgress = 100; return {{"ok", true}};
     }
 public:
@@ -388,8 +360,8 @@ public:
                 if (input) { json saved; input >> saved; networkSettings = validatedSettings(saved); btListenPort = networkSettings.at("listenPort"); }
             } catch (...) { diagnosticLog("invalid saved network settings; using defaults"); }
             lt::settings_pack settings = settingsPack();
-            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.2");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0120-");
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.3");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0130-");
             // 6882 (or the user's port) is a preference, not a restriction.
             // Preserve libtorrent's port retries, OS fallback, IPv4/IPv6 peer
             // discovery, outgoing ephemeral ports and NAT mapping negotiation.
@@ -408,6 +380,10 @@ public:
             classes.add_rule(lt::make_address("::"),lt::make_address("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),globalClass);
             session->set_peer_class_filter(classes);
             bool havePauseSettings = false;
+            try {
+                std::ifstream saved(root / ".state" / "completions.json");
+                if (saved) { json data; saved >> data; completionSeen = data.at("seen").get<std::set<std::string>>(); completionPending = data.at("pending"); if (!completionPending.is_object()) completionPending = json::object(); }
+            } catch (...) { completionPending = json::object(); diagnosticLog("completion state unavailable"); }
             try {
                 std::ifstream saved(root / ".state" / "manual-pauses.json");
                 if (saved) { json pauses; saved >> pauses; manuallyPaused = pauses.get<std::set<std::string>>(); havePauseSettings = true; }
@@ -446,6 +422,18 @@ public:
             return {{"ok",true},{"version",LIBTORRENT_VERSION}};
         }
         if (!session) throw std::runtime_error("下载核心尚未启动");
+        if (op == "completionEvents" || op == "ackCompletion") {
+            std::lock_guard<std::mutex> l(mutex);
+            if (op == "ackCompletion") { completionPending.erase(j.at("id").get<std::string>()); persistCompletions(); return {{"ok",true}}; }
+            json events = json::array();
+            for (auto const& item : completionPending.items()) events.push_back({{"id",item.key()},{"name",item.value()}});
+            return {{"events",events}};
+        }
+        if (op == "trackers") {
+            auto h = task(j); json urls = json::array();
+            for (auto const& tracker : h.trackers()) urls.push_back(tracker.url);
+            return {{"trackers",urls}};
+        }
         if (op == "getNetworkSettings") {
             std::lock_guard<std::mutex> l(mutex);
             return {{"settings",networkSettings},{"defaultTrackers",btmobile::defaultTrackers()}};
@@ -495,9 +483,17 @@ public:
                 if (!manual && s.is_finished && !networkSettings.at("seedEnabled").get<bool>()) state = "已完成（做种已关闭）";
                 list.push_back({{"id",item.first},{"name",s.name},{"progress",progress},{"done",s.total_wanted_done},{"total",s.total_wanted},
                     {"checking",checking},{"checkProgress",s.progress},{"download",s.download_payload_rate},{"upload",s.upload_payload_rate},
-                    {"peers",s.num_peers},{"paused",manual},{"active",!paused},{"state",state},{"error",s.errc ? s.errc.message() : ""}});
+                    {"peers",s.num_peers},{"paused",manual},{"active",!paused},{"state",state},{"error",s.errc ? s.errc.message() : ""},
+                    {"complete",s.has_metadata && s.is_finished && !checking},{"added",s.added_time},{"downloaded",s.all_time_download},{"uploaded",s.all_time_upload},
+                    {"seeds",s.num_seeds},{"swarmSeeds",s.num_complete},{"swarmPeers",s.num_incomplete}});
             }
             return {{"items",list},{"network",diagnostics()},{"deletionMessage",deletionMessage},{"deletionRevision",deletionRevision}};
+        }
+        if (op == "refreshTask") {
+            std::lock_guard<std::mutex> lock(mutex);
+            auto h=tasks.at(j.at("id").get<std::string>());
+            if (!manuallyPaused.count(id(h))) { h.force_reannounce(); h.force_dht_announce(); }
+            return {{"ok",true}};
         }
         if (op == "pause" || op == "resume") {
             auto h = task(j); std::lock_guard<std::mutex> lock(mutex);
