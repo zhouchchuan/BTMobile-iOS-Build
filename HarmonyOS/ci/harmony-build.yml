@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: harmony-v010
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   hap:
     runs-on: ubuntu-24.04
@@ -83,12 +83,13 @@ jobs:
           bash ci/archive-deps.sh host
           export LD_LIBRARY_PATH="$PWD/native-deps/host-archive"
           cmake -S tests -B build-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host --target archive-test -j3
+          python3 tests/archive-fixtures.py build-host/archive-test
           cmake --build build-host -j3
           build-host/settings-test
           build-host/network-test
           TEST_DIR=$(mktemp -d)
           timeout 120 build-host/core-test "$TEST_DIR"
-          python3 tests/archive-fixtures.py build-host/archive-test
       - name: Verify compiled package
         run: |
           set -euo pipefail

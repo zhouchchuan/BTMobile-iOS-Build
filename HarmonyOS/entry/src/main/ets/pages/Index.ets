@@ -88,8 +88,9 @@ struct Index {
       this.version = result.version ?? ''; this.ready = true; this.status = '';
       await this.refresh();
       this.receiveMagnet(); this.receiveNotificationTask();
-      this.notificationsEnabled = await this.notifications.enabled();
       if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
+      // Notification-service availability must never disable live BT progress.
+      this.notifications.enabled().then((enabled: boolean) => { this.notificationsEnabled = enabled; }).catch(() => {});
     } catch (e) { this.status = '核心启动失败：' + (e as Error).message; }
     this.list();
   }

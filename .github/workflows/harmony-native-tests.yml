@@ -27,8 +27,9 @@ jobs:
           bash HarmonyOS/ci/archive-deps.sh host
           export LD_LIBRARY_PATH="$PWD/HarmonyOS/native-deps/host-archive"
           cmake -S HarmonyOS/tests -B HarmonyOS/build-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build HarmonyOS/build-host --target archive-test -j3
+          python3 HarmonyOS/tests/archive-fixtures.py HarmonyOS/build-host/archive-test
           cmake --build HarmonyOS/build-host -j3
           HarmonyOS/build-host/settings-test
           TEST_DIR=$(mktemp -d)
           timeout 120 HarmonyOS/build-host/core-test "$TEST_DIR"
-          python3 HarmonyOS/tests/archive-fixtures.py HarmonyOS/build-host/archive-test

@@ -64,6 +64,9 @@ for name, args in [
 for mode, suffix in [('w', 'tar'), ('w:gz', 'tar.gz'), ('w:bz2', 'tar.bz2'), ('w:xz', 'tar.xz')]:
     with tarfile.open(root/('fixture.'+suffix), mode) as tar: tar.add(src, arcname='中文样例')
     extract('fixture.'+suffix)
+with tarfile.open(root/'root-dot.tar', 'w') as tar: tar.add(src, arcname='.')
+out = extract('root-dot.tar', check_generated=False)
+assert contents(out) == expected
 command(['zip', '-q', '-r', '-s', '64k', 'split.zip', '中文样例'])
 extract('split.zip'); extract('split.z01')
 # Missing first/middle parts must be a missing-volume message, not generic corruption.

@@ -474,6 +474,7 @@ public:
         }
         if (op == "tasks") {
             json list = json::array(); std::lock_guard<std::mutex> l(mutex);
+            saveAlerts(); // Queue completion before the UI releases background transfer.
             for (auto const& item: tasks) {
                 auto s = item.second.status(); bool paused = bool(s.flags & lt::torrent_flags::paused);
                 bool manual = manuallyPaused.count(item.first) != 0;
@@ -524,6 +525,8 @@ public:
             auto previous = manuallyPaused; manuallyPaused.erase(key);
             try { persistPauses(); } catch (...) { manuallyPaused = previous; throw; }
             tasks.erase(key);
+            completionArmed.erase(key); completionSeen.erase(key); completionPending.erase(key);
+            persistCompletions();
             if (deleteData) pendingDeletes.insert(key);
             // libtorrent stops I/O before deleting only files owned by this torrent.
             session->remove_torrent(h, deleteData ? lt::session::delete_files : lt::remove_flags_t{});

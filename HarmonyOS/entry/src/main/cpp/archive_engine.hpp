@@ -63,7 +63,7 @@ template<class Reader> inline void extractChecked(Reader& reader, afs::path cons
         if(cancel)throw std::runtime_error("解压已取消");
         auto name=item.path(); std::replace(name.begin(),name.end(),'\\','/');
         auto normalized=afs::path(name).lexically_normal().generic_string();
-        if(!safeArchivePath(name) || normalized=="." || item.isSymLink() || !item.itemProperty(BitProperty::HardLink).isEmpty())
+        if(!safeArchivePath(name) || (normalized=="." && !item.isDir()) || item.isSymLink() || !item.itemProperty(BitProperty::HardLink).isEmpty())
             throw std::runtime_error("压缩包含有不安全路径或链接，已停止解压");
         auto mode=item.itemProperty(BitProperty::PosixAttrib);
         if(mode.isUInt32()) { auto kind=mode.getUInt32()&S_IFMT; if(kind && kind!=S_IFDIR && kind!=S_IFREG)throw std::runtime_error("压缩包包含特殊文件，已停止解压"); }
@@ -90,8 +90,14 @@ inline void extractArchive(afs::path const& source, afs::path const& destination
     std::atomic<int>& progress, std::atomic<bool>& cancel, std::string const& library="lib7zip.so") {
     using namespace bit7z; bool encrypted=false;
     try {
-        Bit7zLibrary lib(library); BitArchiveReader reader(lib,source.string(),BitFormat::Auto,password);
         auto name=archiveLower(source.filename().string());
+        // Auto-detection treats .001 as a Split container and would only join
+        // the volumes. Select the inner archive so bit7z uses its seekable
+        // multi-volume stream and extracts actual files without a giant copy.
+        const BitInFormat* format=&BitFormat::Auto;
+        if(std::regex_match(name,std::regex(".+\\.7z\\.001"))) format=&BitFormat::SevenZip;
+        else if(std::regex_match(name,std::regex(".+\\.zip\\.001"))) format=&BitFormat::Zip;
+        Bit7zLibrary lib(library); BitArchiveReader reader(lib,source.string(),*format,password);
         bool tarball=std::regex_match(name,std::regex(".+\\.(?:tar\\.(?:gz|xz|bz2|zst)|tgz|txz|tbz|tbz2)"));
         if(tarball && reader.detectedFormat()!=BitFormat::Tar) {
             BitNestedArchiveReader nested(lib,reader,BitFormat::Tar,password);
