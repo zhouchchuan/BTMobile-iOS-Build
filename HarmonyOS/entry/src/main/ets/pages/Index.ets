@@ -76,7 +76,7 @@ struct Index {
     const context = getContext(this) as common.UIAbilityContext;
     try {
       if (active) {
-        const agent = await wantAgent.getWantAgent({ wants: [{ bundleName: 'com.mxmall123.btmobile.harmony', abilityName: 'EntryAbility' }], operationType: wantAgent.OperationType.START_ABILITY, requestCode: 1, wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG] });
+        const agent = await wantAgent.getWantAgent({ wants: [{ bundleName: 'com.mxmall123.btmobile.hm', abilityName: 'EntryAbility' }], operationType: wantAgent.OperationType.START_ABILITY, requestCode: 1, wantAgentFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG] });
         await backgroundTaskManager.startBackgroundRunning(context, backgroundTaskManager.BackgroundMode.DATA_TRANSFER, agent);
       } else await backgroundTaskManager.stopBackgroundRunning(context);
       this.backgroundActive = active;
@@ -206,7 +206,7 @@ struct Index {
               Text('Peer 客户端标志：Htorrent 0.1.0').fontSize(14)
               Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.allowBackground = value; this.syncBackground(); }) }
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
-              Text('V0.1.0 开发验证版\n当前包未签名，需调试 Profile 与真机 UDID 后安装。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
+              Text('V0.1.0 开发验证版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
             }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
