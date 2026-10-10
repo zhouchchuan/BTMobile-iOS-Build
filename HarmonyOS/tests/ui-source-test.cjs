@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const ts = require(process.argv[2]);
 const sdkLoader = path.resolve(path.dirname(process.argv[2]), '../../..');
 const options = JSON.parse(fs.readFileSync(path.join(sdkLoader,'tsconfig.json'),'utf8')).compilerOptions;
-options.ets.components.push('TaskCard', 'SettingsPanel', 'SettingNumber', 'SettingSwitch', 'Player', 'ImageViewer', 'IconButton', 'TaskDetails');
+options.ets.components.push('TaskCard', 'SettingsPanel', 'SettingNumber', 'SettingSwitch', 'Player', 'ImageViewer', 'IconButton', 'TaskDetails', 'SubscriptionPanel');
 const root = path.join(__dirname, '..', 'entry', 'src', 'main', 'ets');
 const files = ['model/Native.ets', 'model/IncomingLink.ets', 'model/TaskFilter.ets', 'model/CompletionNotifications.ets', 'components/TaskCard.ets', 'components/SettingsPanel.ets', 'components/IconButton.ets', 'components/TaskDetails.ets', 'pages/Index.ets', 'entryability/EntryAbility.ets'];
 for (const relative of files) {
@@ -66,3 +66,4 @@ assert(!receive.includes('this.add()'));
 assert(index.includes("Text('确认添加下载任务')"));
 assert(index.includes("this.current = output"));
 console.log('PASS: 10 ArkTS sources parsed, model refresh, keyword/status filters, external magnet validation and confirmation, scoped deletion/retry invariants. Not a full UI build.');
+

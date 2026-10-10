@@ -1,0 +1,28 @@
+BTmobie HarmonyOS 1.0.1 (versionCode 10001)
+
+Scope: HarmonyOS only. iOS 1.2.5 and Android sources/binaries remain unchanged.
+Based on accepted 0.1.6. Player, AV1 decoder, archive engine, BT port/discovery/queue/rate defaults are unchanged.
+
+Subscription: existing https://sub.linkyou.win:5288 and audience com.mxmall123.app; P-256 signed receipts and request proofs.
+HUKS non-exportable P-256 identity key, AES-256-GCM protected ledger, atomic replacement, signature verification on receipt/config load.
+3 new tasks/day in Asia/Shanghai; serialized admission, persisted reservation, validation and duplicate detection before count, refund on failed add.
+Restored tasks, resume/pause, playback and extraction are not gated. Last signed entitlement expires per server TTL; free tasks work offline.
+Subscription status, expiry, UUID, server-configured channels, fixed existing 8 CNY / 30 days rule; no automatic renewal.
+Payment is an isolated in-app HTTPS Web component; no default browser, no native JS bridge, file access disabled.
+Opening the subscription page never creates an order. Payment requires explicit confirmation. Never infer payment from a return URL.
+
+Runtime: existing signed /v1/client-config and authenticated /v1/activity. HarmonyOS platform = harmonyos.
+60-second sync while runtime is available; foreground refresh, 180-second server online window. No new background permission or keepalive.
+Uploads device UUID, platform/version, foreground flag, aggregate task counts and total transfer rates only.
+No magnets, hashes, file names, peers, phone logs or content are uploaded.
+Managed default Trackers are separate from custom Trackers. Signed cache with monotonic revision. No core restart or forced reannounce.
+New tasks use latest managed defaults; existing tasks keep their Tracker lists. Private-torrent and auto-add checks are retained.
+
+Icon: exact iOS 1.2.5 AppIcon-1024.png; SHA256 7E5C5EC4C5E89C11425ECBFF6535855C2C5C2E66A2918145B68A51EEC0D0AD7F.
+
+Backend change required: add harmonyos to existing platform whitelist in client-runtime.mjs only.
+Local backend copy: ../btmobile-subscription-server-harmony101. Original payment/DB/entitlement modules untouched.
+29 backend tests pass, including preservation of iOS/Android behavior, existing subscriptions, configuration and payment validation.
+Client policy/admission/crypto-format tests and SDK model declaration checks pass; full HAP compile and device HUKS/payment validation pending.
+No production server modification or real payment has been performed yet.
+

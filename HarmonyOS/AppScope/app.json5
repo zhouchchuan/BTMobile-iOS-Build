@@ -1,3 +1,4 @@
 {
-  "app": { "bundleName": "com.mxmall123.btmobile.hm", "vendor": "BTMobile", "versionCode": 106, "versionName": "0.1.6", "icon": "$media:btmobile_icon", "label": "$string:app_name" }
+  "app": { "bundleName": "com.mxmall123.btmobile.hm", "vendor": "BTMobile", "versionCode": 10001, "versionName": "1.0.1", "icon": "$media:btmobile_icon", "label": "$string:app_name" }
 }
+

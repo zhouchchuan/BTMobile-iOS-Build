@@ -4,6 +4,9 @@ import { SettingNumber, SettingSwitch } from './SettingField';
 @Component
 export struct SettingsPanel {
   onSaved: () => void = () => {};
+  onSync: () => void = () => {};
+  @Prop @Watch('refreshDefaults') trackerRevision: number = 0;
+  @Prop runtimeMessage: string = '';
   @State loaded: boolean = false;
   @State saving: boolean = false;
   @State message: string = '';
@@ -24,6 +27,9 @@ export struct SettingsPanel {
   @State defaults: string = '';
   @State custom: string = '';
   aboutToAppear(): void { this.load(); }
+  async refreshDefaults(): Promise<void> {
+    try { this.defaults = ((await call({ op: 'getNetworkSettings' })).defaultTrackers ?? []).join('\n'); } catch (_) {}
+  }
   async load(): Promise<void> {
     try {
       const result = await call({ op: 'getNetworkSettings' });
@@ -117,8 +123,11 @@ export struct SettingsPanel {
         Column({ space: 14 }) {
         Text('Tracker').fontSize(16).fontWeight(FontWeight.Medium)
         SettingSwitch({ title: '新任务自动添加 Tracker', value: $autoTrackers })
-        Text('默认地址').fontSize(15).fontWeight(FontWeight.Medium)
+        Text('服务端默认地址 · 配置 ' + this.trackerRevision.toString()).fontSize(15).fontWeight(FontWeight.Medium)
         Text(this.defaults).fontSize(12).width('100%').copyOption(CopyOptions.InApp)
+        Text(this.runtimeMessage).fontSize(12).fontColor('#8E8E93')
+        Button('同步默认 Tracker').fontSize(13).fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.onSync(); })
+        Text('服务端统一管理默认地址，联网约每分钟同步；断网保留缓存，自定义地址不被覆盖。不重启核心，不改变已有任务的 Tracker。').fontSize(12).fontColor('#666666')
         Text('自定义地址（每行一个）').fontSize(15).fontWeight(FontWeight.Medium)
         TextArea({ text: this.custom, placeholder: 'http://、https:// 或 udp:// 地址' }).fontSize(13).height(160).onChange((v: string) => { this.custom = v; })
         Text('自动去重，保留磁力和种子自带地址。已识别为私有的种子不补充公共 Tracker。').fontSize(12).fontColor('#666666')
@@ -129,3 +138,4 @@ export struct SettingsPanel {
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
 }
+

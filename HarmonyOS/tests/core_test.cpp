@@ -81,7 +81,25 @@ int main(int argc,char** argv) {
     try { core.call({{"op","setListenPort"},{"port",70000}}); } catch (std::exception const&) { rejected = true; }
     assert(rejected && core.call({{"op","getNetworkSettings"}})["settings"]["listenPort"] == 6882);
     std::string magnet=lt::make_magnet_uri(params)+"&tr=http%3A%2F%2F127.0.0.1%3A"+std::to_string(trackerPort)+"%2Fannounce";
+    const auto preservedSettings = core.call({{"op","getNetworkSettings"}})["settings"];
+    const std::string managedUrl = "http://127.0.0.1:" + std::to_string(trackerPort) + "/announce";
+    core.call({{"op","setManagedTrackers"},{"revision",6},{"trackers",json::array({managedUrl})}});
+    assert(core.call({{"op","getNetworkSettings"}})["settings"] == preservedSettings);
+    assert(core.call({{"op","getNetworkSettings"}})["defaultTrackers"] == json::array({managedUrl}));
+    assert(core.call({{"op","validateAdd"},{"uri",magnet}})["duplicate"] == false);
+    assert(core.call({{"op","tasks"}})["items"].empty());
     auto added=core.call({{"op","add"},{"uri",magnet}}); std::string hash=added.at("id");
+    assert(core.call({{"op","validateAdd"},{"uri",magnet}})["duplicate"] == true);
+    assert(core.call({{"op","add"},{"uri",magnet}})["duplicate"] == true);
+    assert(core.call({{"op","validateAdd"},{"uri","fixture.torrent"}})["duplicate"] == true);
+    assert(core.call({{"op","tasks"}})["items"].size() == 1);
+    core.call({{"op","setManagedTrackers"},{"revision",7},{"trackers",json::array()}});
+    auto retainedTrackers = core.call({{"op","trackers"},{"id",hash}})["trackers"];
+    assert(std::find(retainedTrackers.begin(), retainedTrackers.end(), managedUrl) != retainedTrackers.end());
+    for (auto badRevision : {0, 6}) {
+        bool blocked=false; try { core.call({{"op","setManagedTrackers"},{"revision",badRevision},{"trackers",json::array({managedUrl})}}); } catch (...) { blocked=true; }
+        assert(blocked);
+    }
     bool complete=false;
     for(int i=0;i<300;++i) {
         auto status=core.call({{"op","tasks"}});
@@ -167,3 +185,4 @@ int main(int argc,char** argv) {
     assert(!fs::exists(scratch/"download"/"fixture.bin") && fs::exists(scratch/"download"/"unicode.zip"));
     std::cout << "PASS: tracker/metadata/bytes with occupied port, queue/manual pause distinction, settings persistence, HTTP seek, UTF-8 ZIP roundtrip, extraction retry, scoped file deletion and both task-removal modes\n";
 }
+

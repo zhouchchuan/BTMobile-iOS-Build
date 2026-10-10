@@ -20,12 +20,14 @@ export interface TorrentFile { index: number; name: string; size: number; done: 
 export interface NetworkInfo { listening: boolean; listenPort: number; configuredPort: number; dhtNodes: number; trackerReplies: number; trackerPeers: number; metadataReceived: number; listenError: string; trackerError: string; networkCode: number; interfaces: number; routes: number; recoveries: number }
 export interface NetworkSettings { listenPort?: number; dht?: boolean; lsd?: boolean; natPmp?: boolean; upnp?: boolean; utp?: boolean; downloadLimitKiB?: number; uploadLimitKiB?: number; queueEnabled?: boolean; maxActive?: number; maxDownloads?: number; maxSeeds?: number; seedEnabled?: boolean; autoAddTrackers?: boolean; customTrackers?: string[] }
 export interface CompletionEvent { id: string; name: string }
-export interface NativeResult { ok?: boolean; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[]; network?: NetworkInfo; port?: number; settings?: NetworkSettings; defaultTrackers?: string[]; deletingData?: boolean; deletionMessage?: string; deletionRevision?: number; trackers?: string[]; events?: CompletionEvent[] }
+export interface NativeResult { ok?: boolean; duplicate?: boolean; revision?: number; version?: string; id?: string; index?: number; complete?: boolean; url?: string; percent?: number; items?: TaskInfo[]; network?: NetworkInfo; port?: number; settings?: NetworkSettings; defaultTrackers?: string[]; deletingData?: boolean; deletionMessage?: string; deletionRevision?: number; trackers?: string[]; events?: CompletionEvent[] }
 export interface FileResult { items: TorrentFile[] }
 export interface PeerInfo { address: string; client: string; download: number; upload: number; progress: number }
 interface PeerResult { items: PeerInfo[] }
 export interface Request {
   op: string;
+  trackers?: string[];
+  revision?: number;
   root?: string;
   uri?: string;
   id?: string;
@@ -54,3 +56,4 @@ export function bytes(size: number): string {
   if (size > 1024) return (size / 1024).toFixed(1) + ' KiB';
   return size.toFixed(0) + ' B';
 }
+

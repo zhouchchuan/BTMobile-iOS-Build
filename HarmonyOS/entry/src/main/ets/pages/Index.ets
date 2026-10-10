@@ -15,6 +15,9 @@ import { TaskDetails } from '../components/TaskDetails';
 import { matchesTask } from '../model/TaskFilter';
 import { CompletionNotifications } from '../model/CompletionNotifications';
 import { networkDisplay, deletionBanner } from '../model/NetworkDisplay';
+import { SubscriptionService, SubscriptionState } from '../model/SubscriptionService';
+import { SubscriptionPanel, subscriptionDate } from '../components/SubscriptionPanel';
+import { APP_VERSION } from '../model/SubscriptionPolicy';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number; modified?: number }
 interface TextPart { value: string; link: boolean }
@@ -76,9 +79,14 @@ struct Index {
   @State archiveError: string = '';
   @State removeTaskId: string = '';
   @State playerCloseRequest: number = 0;
+  @State subscriptionState: SubscriptionState = new SubscriptionState();
+  private subscriptions: SubscriptionService = new SubscriptionService(this.subscriptionState);
+  @State showSubscription: boolean = false;
+  @State subscriptionBackRequest: number = 0;
 
   onBackPress(): boolean {
     if (this.playerSource) { this.playerCloseRequest++; return true; }
+    if (this.showSubscription) { this.subscriptionBackRequest++; return true; }
     return false;
   }
 
@@ -99,11 +107,13 @@ struct Index {
       if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
       // Notification-service availability must never disable live BT progress.
       this.notifications.enabled().then((enabled: boolean) => { this.notificationsEnabled = enabled; }).catch(() => {});
+      // Subscription networking is independent from BT initialization and progress polling.
+      this.subscriptions.start(context);
     } catch (e) { this.status = '核心启动失败：' + (e as Error).message; }
     this.list();
   }
-  aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; }
-  foregroundChanged(): void { if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
+  aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; this.subscriptions.stop(); }
+  foregroundChanged(): void { this.subscriptions.setForeground(this.foreground); if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
   receiveMagnet(): void {
     if (!this.ready || !this.incomingMagnet) return;
     this.magnet = this.incomingMagnet; this.incomingMagnet = ''; this.tab = 0; this.selectedTask = ''; this.showAdd = true;
@@ -202,7 +212,8 @@ struct Index {
     if (!/^magnet:\?/i.test(this.magnet.trim())) { this.fail(new Error('请输入有效的 magnet: 磁力链接')); return; }
     this.adding = true;
     try {
-      await call({ op: 'add', uri: this.magnet.trim().replace(/^magnet:/i, 'magnet:') });
+      const admitted = await this.subscriptions.addTask(this.magnet.trim().replace(/^magnet:/i, 'magnet:'));
+      if (!admitted) { this.showAdd = false; this.showSubscription = true; return; }
       this.magnet = ''; this.status = ''; this.showAdd = false; this.tab = 0; this.keyword = ''; this.taskFilter = 0; await this.refresh();
       // A user-confirmed download is a suitable moment to request notification consent.
       if (!this.notificationsEnabled) await this.enableNotifications();
@@ -249,7 +260,12 @@ struct Index {
     if(item.directory) { this.current = item.path; this.list(); return; }
     const extension = item.name.split('.').pop()?.toLowerCase() ?? '';
     try {
-      if (extension === 'torrent') { await call({ op: 'add', uri: item.path }); this.tab = 0; await this.refresh(); }
+      if (extension === 'torrent') {
+        const choice = await promptAction.showDialog({ title: '确认添加下载任务', message: item.name, buttons: [{ text: '取消', color: '#8E8E93' }, { text: '添加', color: '#F39A56' }] });
+        if (choice.index !== 1) return;
+        if (!await this.subscriptions.addTask(item.path)) { this.showSubscription = true; return; }
+        this.tab = 0; await this.refresh();
+      }
       else if (['txt','log','md','srt','ass','json','csv'].includes(extension)) {
         if (item.size > 4 * 1024 * 1024) throw new Error('此文本超过 4 MiB，请使用外部编辑器');
         this.textPath = item.path; this.text = fs.readTextSync(this.root + '/' + item.path); this.editing = false; this.splitText();
@@ -345,7 +361,7 @@ struct Index {
           Text(this.tab === 0 ? 'BTmobie' : this.tab === 1 ? (this.current.split('/').pop() || '文件管理') : '设置').fontSize(this.tab === 0 ? 32 : 18).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (this.tab === 1) {
             Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
-          } else { Text('0.1.6').fontSize(12).fontColor('#8E8E93') }
+          } else { Text(APP_VERSION).fontSize(12).fontColor('#8E8E93') }
         }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 12 })
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
@@ -406,17 +422,23 @@ struct Index {
               Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
-              SettingsPanel({ onSaved: () => { this.refresh(); } })
+              SettingsPanel({ trackerRevision: this.subscriptionState.trackerRevision, runtimeMessage: this.subscriptionState.runtimeMessage,
+                onSync: () => { this.subscriptions.synchronize(true); }, onSaved: () => { this.refresh(); } })
               Column({ space: 12 }) {
                 Text('下载完成通知').fontSize(16).fontWeight(FontWeight.Medium)
                 Text(this.notificationsEnabled ? '系统通知已授权' : '未授权，请允许通知以接收下载完成提醒').fontSize(13).fontColor('#8E8E93')
                 Button('检查 / 开启通知').fontSize(14).fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.enableNotifications(); })
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
-              Text('版本信息').fontSize(16).fontWeight(FontWeight.Medium)
-              Text('BTmobie V0.1.6 调试版\n调试安装需要匹配设备的签名与 Profile。AV1 支持兼容解码。').fontSize(13).fontColor('#666666')
-              Text('下载目录\n' + this.root).fontSize(12)
-              Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
+              Text('订阅信息').fontSize(16).fontWeight(FontWeight.Medium)
+              Row() { Text('当前版本').fontSize(15).layoutWeight(1); Text('V' + APP_VERSION).fontSize(15).fontColor('#EE9A64') }.width('100%')
+              Divider().color('#E5E5EA')
+              Row() { Text('订阅到期时间').fontSize(15).layoutWeight(1); Text(subscriptionDate(this.subscriptionState.expiresAt)).fontSize(13).fontColor('#EE9A64') }.width('100%')
+              Divider().color('#E5E5EA')
+              Row() { Text('订阅与设备身份').fontSize(15).layoutWeight(1); Text(this.subscriptionState.status + ' ›').fontSize(14).fontColor('#EE9A64') }.width('100%').height(40).onClick(() => { this.showSubscription = true; this.subscriptions.synchronize(); })
+              Text('UUID：' + (this.subscriptionState.deviceID || '正在读取')).fontSize(12).fontColor('#8E8E93').copyOption(CopyOptions.InApp)
+              Text(this.subscriptionState.unlimited ? '无限添加下载任务' : '今日免费剩余 ' + this.subscriptionState.freeRemaining.toString() + ' / 3 次').fontSize(12).fontColor('#8E8E93')
+              Text('订阅 8 元 / 30 天，以最近一次有效同步的服务端策略为准。').fontSize(12).fontColor('#8E8E93')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
             }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
           }.layoutWeight(1)
@@ -514,6 +536,9 @@ struct Index {
       if (this.playerSource) {
         Player({ source: this.playerSource, title: this.playerTitle, closeRequest: this.playerCloseRequest, onClose: () => { this.playerSource = ''; call({ op: 'stopStream' }).catch(() => {}); } })
       }
+      if (this.showSubscription) {
+        SubscriptionPanel({ state: this.subscriptionState, service: this.subscriptions, backRequest: this.subscriptionBackRequest, onClose: () => { this.showSubscription = false; } })
+      }
       if (this.removeTaskId) {
         Column({ space: 18 }) {
           Text('移除任务').fontSize(20).fontWeight(FontWeight.Bold)
@@ -526,3 +551,4 @@ struct Index {
     }.width('100%').height('100%')
   }
 }
+

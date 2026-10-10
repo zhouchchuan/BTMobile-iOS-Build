@@ -62,6 +62,8 @@ class Core {
     int port = 0;
     int btListenPort = 6882;
     json networkSettings = btmobile::defaultSettings();
+    std::vector<std::string> managedTrackers = btmobile::defaultTrackers();
+    std::int64_t managedRevision = 0;
     std::set<std::string> manuallyPaused;
     std::set<std::string> pendingDeletes;
     std::string deletionMessage;
@@ -120,7 +122,7 @@ class Core {
     void appendDefaultTrackers(lt::add_torrent_params& params) const {
         // Keep private torrents private, and preserve trackers supplied by the user.
         if ((params.ti && params.ti->priv()) || !networkSettings.at("autoAddTrackers").get<bool>()) return;
-        auto urls = btmobile::defaultTrackers();
+        auto urls = managedTrackers;
         for (auto const& custom : networkSettings.at("customTrackers")) urls.push_back(custom.get<std::string>());
         for (auto const& url : urls) if (std::find(params.trackers.begin(), params.trackers.end(), url) == params.trackers.end()) {
             params.trackers.push_back(url);
@@ -436,7 +438,20 @@ public:
         }
         if (op == "getNetworkSettings") {
             std::lock_guard<std::mutex> l(mutex);
-            return {{"settings",networkSettings},{"defaultTrackers",btmobile::defaultTrackers()}};
+            return {{"settings",networkSettings},{"defaultTrackers",managedTrackers},{"revision",managedRevision}};
+        }
+        if (op == "setManagedTrackers") {
+            // Called only after pinned server-signature verification. Separate from user settings.
+            // Do not restart libtorrent, rewrite custom trackers, or modify existing private torrents.
+            std::lock_guard<std::mutex> l(mutex);
+            if (!j.at("revision").is_number_integer()) throw std::runtime_error("Tracker 配置版本无效");
+            auto revision = j.at("revision").get<std::int64_t>();
+            if (revision < 1 || revision < managedRevision) throw std::runtime_error("Tracker 配置版本回退");
+            auto list = btmobile::validateSettings(btmobile::defaultSettings(), {{"customTrackers",j.at("trackers")}}).at("customTrackers").get<std::vector<std::string>>();
+            if (list.size() > 100) throw std::runtime_error("默认 Tracker 数量超限");
+            if (revision == managedRevision && list != managedTrackers) throw std::runtime_error("同版本 Tracker 配置不一致");
+            managedTrackers = std::move(list); managedRevision = revision;
+            return {{"ok",true},{"revision",managedRevision}};
         }
         if (op == "setListenPort" || op == "setNetworkSettings") {
             // Stable settings API: partial updates, validation, atomic persistence.
@@ -457,20 +472,28 @@ public:
             }
             return {{"ok",true},{"port",btListenPort},{"settings",networkSettings}};
         }
-        if (op == "add") {
+        if (op == "add" || op == "validateAdd") {
             lt::error_code ec; std::string uri = j.at("uri"); lt::add_torrent_params p;
             if (uri.rfind("magnet:?",0) == 0) p = lt::parse_magnet_uri(uri,ec);
             else p = lt::load_torrent_file(checked(uri).string());
             if (ec) throw std::runtime_error("磁力链接或种子文件无效");
             p.save_path = root.string(); p.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
             std::lock_guard<std::mutex> l(mutex);
+            // Match either v1 or v2 for hybrid torrents; re-imports must not consume a daily use.
+            const auto hashes = p.ti ? p.ti->info_hashes() : p.info_hashes;
+            for (auto const& item : tasks) {
+                auto existing = item.second.info_hashes();
+                if ((hashes.has_v1() && existing.has_v1() && hashes.v1 == existing.v1) ||
+                    (hashes.has_v2() && existing.has_v2() && hashes.v2 == existing.v2)) return {{"id",item.first},{"duplicate",true}};
+            }
+            if (op == "validateAdd") return {{"ok",true},{"duplicate",false}};
             if (!pendingDeletes.empty()) throw std::runtime_error("正在删除下载数据，请稍后再添加任务");
             if (managed()) p.flags |= lt::torrent_flags::auto_managed | lt::torrent_flags::paused;
             appendDefaultTrackers(p);
             auto h = session->add_torrent(p,ec);
             if (ec) throw std::runtime_error(ec.message());
             tasks[id(h)] = h; h.save_resume_data(lt::torrent_handle::save_info_dict);
-            return {{"id",id(h)}};
+            return {{"id",id(h)},{"duplicate",false}};
         }
         if (op == "tasks") {
             json list = json::array(); std::lock_guard<std::mutex> l(mutex);
@@ -666,3 +689,4 @@ static napi_value Init(napi_env env,napi_value exports) {
 static napi_module module={1,0,nullptr,Init,"btmobile",nullptr,{0}};
 extern "C" __attribute__((constructor)) void RegisterBTMobile(){napi_module_register(&module);}
 #endif
+
