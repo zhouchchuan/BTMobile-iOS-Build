@@ -323,7 +323,7 @@ public:
             // Do not silently drift to another configured port on conflict.
             settings.set_int(lt::settings_pack::max_retry_port_bind, 0);
             settings.set_bool(lt::settings_pack::listen_system_port_fallback, false);
-            settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht));
+            settings.set_int(lt::settings_pack::alert_mask, static_cast<int>(static_cast<std::uint32_t>(lt::alert_category::error | lt::alert_category::status | lt::alert_category::tracker | lt::alert_category::dht)));
             settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881");
 #ifdef BTMOBILE_OHOS
             network = btmobile_ohos::snapshot(); networkIdentity = network.identity;
