@@ -98,7 +98,7 @@ struct Index {
   foregroundChanged(): void { if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
   receiveMagnet(): void {
     if (!this.ready || !this.incomingMagnet) return;
-    this.magnet = this.incomingMagnet; this.incomingMagnet = ''; this.tab = 0; this.showAdd = true;
+    this.magnet = this.incomingMagnet; this.incomingMagnet = ''; this.tab = 0; this.selectedTask = ''; this.showAdd = true;
   }
   receiveNotificationTask(): void {
     if (!this.ready || !this.notificationTask) return;
@@ -432,7 +432,7 @@ struct Index {
             onClose: () => { this.selectedTask = ''; this.showPeers = false; },
             onPeers: () => { this.showPeers = !this.showPeers; this.refreshDetails(); },
             onPause: async () => { try { await call({ op: task.paused ? 'resume' : 'pause', id: task.id }); await this.refresh(); } catch(e) { this.fail(e as Error); } },
-            onRefresh: async () => { try { await call({ op: 'refreshTask', id: task.id }); await this.refresh(); promptAction.showToast({ message: '任务状态已刷新，已请求重新发现连接' }); } catch(e) { this.fail(e as Error); } },
+            onRefresh: async () => { try { await call({ op: 'refreshTask', id: task.id }); await this.refresh(); promptAction.showToast({ message: task.paused ? '任务状态已刷新，保持暂停' : '任务状态已刷新，已请求重新发现连接' }); } catch(e) { this.fail(e as Error); } },
             onRemove: () => { this.removeTaskId = task.id; }, onPlay: (file: TorrentFile) => { this.playTask(file); } })
         }, (task: TaskState) => task.id)
       }
@@ -470,6 +470,7 @@ struct Index {
         }.width('100%').height('100%').backgroundColor(Color.White)
       }
       if (this.archivePath) {
+        Column().width('100%').height('100%').backgroundColor('#55000000')
         Scroll() {
         Column({ space: 16 }) {
           Text('解压压缩包').fontSize(20).fontWeight(FontWeight.Bold)

@@ -9,7 +9,7 @@ old = '''            streamPath = streamPath.parent_path();
             std::error_code error;
             const auto streamStatus = fs::status( streamPath, error );'''
 new = '''            // BTMOBILE_VOLUME_SANDBOX: an archive cannot request arbitrary local files.
-            const fs::path requested( name );
+            const fs::path requested = sevenzipStringToPath( name );
             if ( requested.is_absolute() || requested.has_parent_path() ||
                  requested.filename() == "." || requested.filename() == ".." ) return E_INVALIDARG;
             streamPath = streamPath.parent_path() / requested;
@@ -21,4 +21,5 @@ if 'BTMOBILE_VOLUME_SANDBOX' not in text:
     text = text.replace(old, new)
 # Upgrade an already-patched cached checkout to bit7z's portable HRESULT.
 text = text.replace('return E_ACCESSDENIED;', 'return E_INVALIDARG;')
+text = text.replace('const fs::path requested( name );', 'const fs::path requested = sevenzipStringToPath( name );')
 source.write_text(text, encoding='utf-8')

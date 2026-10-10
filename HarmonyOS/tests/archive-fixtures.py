@@ -69,6 +69,8 @@ out = extract('root-dot.tar', check_generated=False)
 assert contents(out) == expected
 command(['zip', '-q', '-r', '-s', '64k', 'split.zip', '中文样例'])
 extract('split.zip'); extract('split.z01')
+command(['zip', '-q', '-r', '-s', '64k', '中文分卷.zip', '中文样例'])
+extract('中文分卷.zip'); extract('中文分卷.z01')
 # Missing first/middle parts must be a missing-volume message, not generic corruption.
 part = root/'vol.7z.002'; part.rename(root/'vol.7z.002.saved')
 extract('vol.7z.001', 'fixture-pass', '分卷')
