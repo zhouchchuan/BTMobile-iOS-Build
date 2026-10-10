@@ -205,7 +205,7 @@ export class SubscriptionService {
         if (added.duplicate && reservedDay) await this.save(refund(this.ledger, reservedDay));
       } catch (error) {
         if (reservedDay) { try { await this.save(refund(this.ledger, reservedDay)); } catch (_) { this.state.message = '新增失败且次数恢复失败，请联系管理员；未静默重置次数。'; } }
-        throw error;
+        throw error as Error;
       }
       this.publish(); return true;
     });

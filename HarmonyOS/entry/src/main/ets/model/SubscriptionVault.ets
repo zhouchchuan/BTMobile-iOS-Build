@@ -53,7 +53,7 @@ async function finish(alias: string, properties: huks.HuksParam[], input: Uint8A
     const result = await huks.finishSession(session.handle, { properties: properties, inData: input });
     if (!result.outData) throw new Error('设备安全服务未返回数据');
     return result.outData;
-  } catch (error) { try { await huks.abortSession(session.handle, { properties: [] }); } catch (_) {} throw error; }
+  } catch (error) { try { await huks.abortSession(session.handle, { properties: [] }); } catch (_) {} throw error as Error; }
 }
 export async function verifyEnvelope(raw: string): Promise<string> {
   if (raw.length > 131072) throw new Error('服务端响应过大');

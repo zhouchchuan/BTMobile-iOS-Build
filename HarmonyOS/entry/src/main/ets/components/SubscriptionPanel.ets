@@ -11,7 +11,7 @@ export function subscriptionDate(seconds: number): string {
 @Component
 export struct SubscriptionPanel {
   @ObjectLink state: SubscriptionState;
-  service: SubscriptionService;
+  service: SubscriptionService = new SubscriptionService(new SubscriptionState());
   onClose: () => void = () => {};
   @State paying: boolean = false;
   @State loadingOrders: boolean = false;
