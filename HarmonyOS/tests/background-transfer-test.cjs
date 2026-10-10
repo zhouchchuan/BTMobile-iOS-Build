@@ -31,6 +31,13 @@ function harness(api = 20) {
     '@ohos.deviceInfo':{default:{sdkApiVersion:api}}, '@ohos.hilog':{default:{info(){}}},
     './Native':native, './CompletionNotifications':{CompletionNotifications:class{deliver(){return new Promise(()=>{});}}}
   };
+  // Execute the actual compatibility bridge too, not a mock of its behavior.
+  if (api < 15) { delete manager.on; delete manager.off; }
+  if (api < 20) delete manager.getAllContinuousTasks;
+  const bridgeScope={exports:{},require:name=>mocks[name]??{}};
+  vm.runInNewContext(ts.transpileModule(read('entry/src/main/ets/model/BackgroundTaskCompat.js'),
+    {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText,bridgeScope);
+  mocks['./BackgroundTaskCompat']=bridgeScope.exports;
   const scope={exports:{},require:name=>mocks[name]??{},Date:{now:()=>now},AppStorage:{setOrCreate:(key,value)=>messages.push(value)},
     setInterval:cb=>{timers.set(1,cb);return 1;},clearInterval:id=>timers.delete(id)};
   vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText,scope);
@@ -84,8 +91,8 @@ const notices=h=>h.calls.filter(c=>typeof c==='object');
   const page=read('entry/src/main/ets/pages/Index.ets'),ability=read('entry/src/main/ets/entryability/EntryAbility.ets');
   assert(!page.includes('startBackgroundRunning')&&!page.includes('backgroundActive'));
   assert(ability.includes('backgroundTransfer.attach(this.context)')&&ability.includes('backgroundTransfer.setForeground(false)'));
-  assert(read('entry/src/main/ets/components/TaskDetails.ets').includes("app.media.action_refresh'), outline: true"));
-  assert(read('entry/src/main/ets/components/IconButton.ets').includes('if (this.outline) { Image(this.icon).width(24).height(24) }'));
+  assert(read('entry/src/main/ets/components/TaskDetails.ets').includes("app.media.action_refresh'), preserveSvgStroke: true"));
+  assert(read('entry/src/main/ets/components/IconButton.ets').includes('if (this.preserveSvgStroke) { Image(this.icon).width(24).height(24) }'));
   assert(page.includes("op: 'refreshTask', id: task.id"));
   console.log('PASS V104: foreground acquisition, background/lock lifecycle, real live-view progress, no fake idle updates, pending races, API12 fallback, cancellation/suspend/recovery, notification failure, independent completion, refresh outline+action');
 })().catch(e=>{console.error(e);process.exitCode=1;});

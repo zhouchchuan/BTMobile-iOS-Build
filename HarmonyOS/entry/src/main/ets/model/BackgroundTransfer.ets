@@ -6,17 +6,7 @@ import deviceInfo from '@ohos.deviceInfo';
 import hilog from '@ohos.hilog';
 import { call, TaskInfo, bytes } from './Native';
 import { CompletionNotifications } from './CompletionNotifications';
-
-// Optional API 15/20 capabilities. The application retains its API 12 minimum;
-// these documented methods are only invoked on systems that provide them.
-interface TaskEvent { id?: number; reason?: number; continuousTaskId?: number; suspendReason?: number }
-interface SystemTask { abilityName: string; notificationId: number; continuousTaskId: number; suspendState: boolean }
-interface StartedTask { notificationId: number; continuousTaskId?: number }
-interface TaskEvents {
-  on(type: string, callback: (event: TaskEvent) => void): void;
-  off(type: string, callback: (event: TaskEvent) => void): void;
-  getAllContinuousTasks(context: common.UIAbilityContext, includeSuspended: boolean): Promise<SystemTask[]>;
-}
+import { TaskEvent, SystemTask, onTaskEvent, offTaskEvent, queryTasks, startTransfer } from './BackgroundTaskCompat';
 
 // Owned by EntryAbility, not by an ArkUI page or a completion-notification promise.
 // No fake audio, periodic stop/start, fabricated progress or exemption request.
@@ -46,7 +36,6 @@ export class BackgroundTransfer {
   private epoch: number = 0;
   private message: string = '';
   private completion: CompletionNotifications = new CompletionNotifications();
-  private events: TaskEvents = backgroundTaskManager as TaskEvents;
 
   private cancelListener = (event: TaskEvent): void => {
     if (this.stopping || !this.matches(event)) return;
@@ -77,12 +66,12 @@ export class BackgroundTransfer {
   }
   attach(context: common.UIAbilityContext): void {
     this.context = context; this.disposed = false;
-    try { if (deviceInfo.sdkApiVersion >= 15) this.events.on('continuousTaskCancel', this.cancelListener); }
+    try { if (deviceInfo.sdkApiVersion >= 15) onTaskEvent('continuousTaskCancel', this.cancelListener); }
     catch (_) { this.report('后台任务取消监听暂不可用'); }
     try {
       if (deviceInfo.sdkApiVersion >= 20) {
-        this.events.on('continuousTaskSuspend', this.suspendListener);
-        this.events.on('continuousTaskActive', this.activeListener);
+        onTaskEvent('continuousTaskSuspend', this.suspendListener);
+        onTaskEvent('continuousTaskActive', this.activeListener);
       }
     } catch (_) { this.report('后台任务挂起监听暂不可用'); }
   }
@@ -135,7 +124,7 @@ export class BackgroundTransfer {
     if (!this.context || !this.inspectRequired || deviceInfo.sdkApiVersion < 20) return;
     this.inspectRequired = false;
     try {
-      const tasks = await this.events.getAllContinuousTasks(this.context, true);
+      const tasks = await queryTasks(this.context);
       const task = tasks.find((item: SystemTask) => item.abilityName === 'EntryAbility');
       this.notificationId = task ? task.notificationId : -1;
       this.taskId = task ? task.continuousTaskId : -1;
@@ -201,7 +190,7 @@ export class BackgroundTransfer {
           });
           if (!this.wanted() || !this.foreground) continue;
           const epoch = this.epoch;
-          const result: StartedTask = await backgroundTaskManager.startBackgroundRunning(this.context, ['dataTransfer'], agent);
+          const result = await startTransfer(this.context, agent);
           if (epoch !== this.epoch) continue; // A concurrent system cancellation wins.
           this.notificationId = result.notificationId; this.taskId = result.continuousTaskId ?? -1;
           this.lastBytes = -1; this.lastProgressAt = 0;
@@ -222,11 +211,11 @@ export class BackgroundTransfer {
   }
   async detach(): Promise<void> {
     this.disposed = true; this.enabled = false; clearInterval(this.timer); this.timer = -1;
-    try { if (deviceInfo.sdkApiVersion >= 15) this.events.off('continuousTaskCancel', this.cancelListener); } catch (_) {}
+    try { if (deviceInfo.sdkApiVersion >= 15) offTaskEvent('continuousTaskCancel', this.cancelListener); } catch (_) {}
     try {
       if (deviceInfo.sdkApiVersion >= 20) {
-        this.events.off('continuousTaskSuspend', this.suspendListener);
-        this.events.off('continuousTaskActive', this.activeListener);
+        offTaskEvent('continuousTaskSuspend', this.suspendListener);
+        offTaskEvent('continuousTaskActive', this.activeListener);
       }
     } catch (_) {}
     await this.reconcile();

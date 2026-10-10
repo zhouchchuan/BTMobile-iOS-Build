@@ -103,7 +103,7 @@ export struct TaskDetails {
       Row() {
         Row({ space: 4 }) {
           IconButton({ icon: this.task.paused ? $r('app.media.action_play') : $r('app.media.action_pause'), label: this.task.paused ? '继续任务' : '暂停任务', action: this.onPause })
-          IconButton({ icon: $r('app.media.action_refresh'), outline: true, label: '刷新任务与连接', action: this.onRefresh })
+          IconButton({ icon: $r('app.media.action_refresh'), preserveSvgStroke: true, label: '刷新任务与连接', action: this.onRefresh })
         }.padding(3).borderRadius(28).backgroundColor(Color.White)
         Blank()
         IconButton({ icon: $r('app.media.action_trash'), label: '移除任务', action: this.onRemove })
