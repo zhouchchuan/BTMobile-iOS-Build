@@ -313,19 +313,27 @@ struct Index {
         } else {
           Scroll() {
             Column({ space: 16 }) {
+              Column({ space: 12 }) {
               Text('原生下载核心').fontSize(20).fontWeight(FontWeight.Bold)
               Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
               Text('Peer 客户端标志：Htorrent 0.1.2').fontSize(14)
               Text(this.networkSummary).fontSize(14)
               Text(this.networkDetail).fontSize(12).fontColor('#666666')
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+              Column({ space: 12 }) {
+              Text('后台传输').fontSize(20).fontWeight(FontWeight.Bold)
               Row() { Text('允许后台下载 / 做种').layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).onChange((value: boolean) => { this.setAllowBackground(value); }) }
               Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
               Text('后台传输使用系统持续任务通知，无活动任务时自动停止。需要真机验证系统授权与锁屏表现。').fontSize(13).fontColor('#666666')
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               SettingsPanel({ onSaved: () => { this.refresh(); } })
+              Column({ space: 12 }) {
+              Text('版本信息').fontSize(20).fontWeight(FontWeight.Bold)
               Text('V0.1.2 调试版\n调试安装需要匹配设备的签名与 Profile。系统编解码兼容性及性能需要真机验证。').fontSize(14).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
-            }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+            }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
           }.layoutWeight(1)
         }
         Row() {

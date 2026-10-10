@@ -75,12 +75,14 @@ export struct SettingsPanel {
     Column({ space: 14 }) {
       if (!this.loaded) { Button('重新读取核心设置').onClick(() => { this.load(); }) }
       Column({ space: 14 }) {
+        Column({ space: 14 }) {
         Text('传输与做种').fontSize(20).fontWeight(FontWeight.Bold)
         this.toggle('下载完成后继续做种', this.seedEnabled, (v: boolean) => { this.seedEnabled = v; })
         this.numeric('下载限速（KiB/s）', this.download, (v: string) => { this.download = v; })
         this.numeric('上传限速（KiB/s）', this.upload, (v: string) => { this.upload = v; })
         Text('0 表示不限速；1024 KiB/s = 1 MiB/s。限速包含局域网连接。下载任务也可以同时上传。').fontSize(12).fontColor('#666666')
-        Divider()
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+        Column({ space: 14 }) {
         Text('任务队列').fontSize(20).fontWeight(FontWeight.Bold)
         this.toggle('启用队列限制', this.queue, (v: boolean) => { this.queue = v; })
         Column({ space: 12 }) {
@@ -89,7 +91,8 @@ export struct SettingsPanel {
           this.numeric('同时做种任务数', this.seeds, (v: string) => { this.seeds = v; })
         }.enabled(this.queue)
         Text('总活跃数同时约束下载与做种。数量 0 表示该类任务等待；关闭队列则不限数量。手动暂停的任务不会因保存设置而自动继续。').fontSize(12).fontColor('#666666')
-        Divider()
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+        Column({ space: 14 }) {
         Text('BT 网络').fontSize(20).fontWeight(FontWeight.Bold)
         this.numeric('首选监听端口', this.port, (v: string) => { this.port = v; })
         Text('默认 6882。保留 IPv4 / IPv6 自动发现与可用端口回退；实际端口显示在网络状态中。').fontSize(12).fontColor('#666666')
@@ -98,7 +101,8 @@ export struct SettingsPanel {
         this.toggle('NAT-PMP 映射', this.natPmp, (v: boolean) => { this.natPmp = v; })
         this.toggle('UPnP 映射', this.upnp, (v: boolean) => { this.upnp = v; })
         this.toggle('μTP 连接', this.utp, (v: boolean) => { this.utp = v; })
-        Divider()
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+        Column({ space: 14 }) {
         Text('Tracker').fontSize(20).fontWeight(FontWeight.Bold)
         this.toggle('新任务自动添加 Tracker', this.autoTrackers, (v: boolean) => { this.autoTrackers = v; })
         Text('默认地址').fontSize(15).fontWeight(FontWeight.Medium)
@@ -106,6 +110,7 @@ export struct SettingsPanel {
         Text('自定义地址（每行一个）').fontSize(15).fontWeight(FontWeight.Medium)
         TextArea({ text: this.custom, placeholder: 'http://、https:// 或 udp:// 地址' }).fontSize(13).height(160).onChange((v: string) => { this.custom = v; })
         Text('自动去重，保留磁力和种子自带地址。已识别为私有的种子不补充公共 Tracker。').fontSize(12).fontColor('#666666')
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Button(this.saving ? '正在保存…' : '保存核心设置').width('100%').backgroundColor('#F39A56').onClick(() => { this.save(); })
       }.enabled(this.loaded && !this.saving).alignItems(HorizontalAlign.Start).width('100%')
       if (this.message) { Text(this.message).fontSize(13).fontColor('#995522') }
