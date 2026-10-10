@@ -121,10 +121,14 @@ int main(int argc,char** argv) {
     assert(stopped["done"] == stillStopped["done"] && stillStopped["paused"] == false && stillStopped["active"] == false);
     assert(stillStopped["peers"] == 0 && stillStopped["done"].get<int64_t>() < int64_t(payload.size()));
     core.call({{"op","setNetworkSettings"},{"settings",{{"allowWifi",true},{"allowCellular",true},{"downloadLimitKiB",0}}}});
+    // The production core intentionally retains libtorrent's 60-second minimum
+    // reconnect delay, even at failcount=0 (peer_list::connect_one_peer).
+    // This single-peer fixture must wait past that backoff after disconnecting.
     bool complete=false;
-    for(int i=0;i<300;++i) {
+    for(int i=0;i<900;++i) {
         auto status=core.call({{"op","tasks"}});
-        if(status["items"][0]["progress"].get<float>()>=1.0f){complete=true;break;}
+        if (i % 100 == 0) std::cout << "network resume wait=" << i/10 << "s task=" << status["items"][0].dump() << std::endl;
+        if(status["items"][0]["progress"].get<float>()>=1.0f){complete=true;std::cout << "network resume completed after " << i/10 << "s\n";break;}
         std::this_thread::sleep_for(100ms);
     }
     assert(complete);
