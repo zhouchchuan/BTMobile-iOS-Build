@@ -14,6 +14,7 @@ import { IconButton } from '../components/IconButton';
 import { TaskDetails } from '../components/TaskDetails';
 import { matchesTask } from '../model/TaskFilter';
 import { CompletionNotifications } from '../model/CompletionNotifications';
+import { networkDisplay, deletionBanner } from '../model/NetworkDisplay';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number; modified?: number }
 interface TextPart { value: string; link: boolean }
@@ -45,14 +46,14 @@ struct Index {
   private readonly filters: string[] = ['全部', '完成', '下载中', '做种中', '已暂停', '校验文件', '获取元数据'];
   @State allowBackground: boolean = false;
   @State backgroundMessage: string = '后台传输未启用';
-  @State networkSummary: string = '正在读取网络状态…';
-  @State networkDetail: string = '';
+  @State networkPort: string = '—';
+  @State networkDht: string = '—';
+  @State networkTrackers: string = '—';
   @State actionPath: string = '';
   @State newName: string = '';
   @State imagePath: string = '';
   @State ready: boolean = false;
   @State tab: number = 0;
-  @State version: string = '';
   @State tasks: TaskState[] = [];
   @State magnet: string = '';
   @State status: string = '正在启动原生下载核心…';
@@ -92,7 +93,7 @@ struct Index {
     } catch (e) { this.backgroundMessage = '无法读取后台设置：' + (e as Error).message; }
     try {
       const result = await call({ op: 'init', root: this.root });
-      this.version = result.version ?? ''; this.ready = true; this.status = '';
+      this.ready = true; this.status = '';
       await this.refresh();
       this.receiveMagnet(); this.receiveNotificationTask();
       if (this.pageVisible) { clearInterval(this.poll); this.poll = setInterval(() => { this.refresh(); }, 1000); }
@@ -127,19 +128,15 @@ struct Index {
       const old = this.tasks;
       if ((result.deletionRevision ?? 0) > this.deletionRevision) {
         this.deletionRevision = result.deletionRevision ?? 0;
-        this.status = result.deletionMessage ?? ''; this.list();
+        this.status = deletionBanner(result.deletionMessage ?? ''); this.list();
       }
       this.tasks = (result.items ?? []).map((value: TaskInfo): TaskState => {
         const row = old.find((item: TaskState) => item.id === value.id) ?? new TaskState();
         row.update(value); return row;
       });
       if (result.network) {
-        const net = result.network;
-        const connection = net.networkCode !== 0 ? '网络不可用 (' + net.networkCode.toString() + ')' : net.listening ? 'BT 已监听 ' + net.listenPort.toString() : 'BT 等待监听 ' + net.configuredPort.toString();
-        this.networkSummary = connection + ' · DHT ' + net.dhtNodes.toString() + ' 节点 · Tracker 响应 ' + net.trackerReplies.toString();
-        this.networkDetail = '网络接口 ' + net.interfaces.toString() + ' · 路由 ' + net.routes.toString() + ' · Tracker 返回 Peer ' + net.trackerPeers.toString() + '\n已获取磁力元数据 ' + net.metadataReceived.toString() + ' · 网络恢复 ' + net.recoveries.toString();
-        if (net.listenError) this.networkDetail += '\n' + net.listenError;
-        if (net.trackerError) this.networkDetail += '\n' + net.trackerError;
+        const display = networkDisplay(result.network);
+        this.networkPort = display.port; this.networkDht = display.dht; this.networkTrackers = display.trackers;
       }
       // OS authorization and file/Peer detail calls must not block task refresh.
       // Deliver the persisted completion event before releasing background runtime.
@@ -348,7 +345,7 @@ struct Index {
           Text(this.tab === 0 ? 'BTmobie' : this.tab === 1 ? (this.current.split('/').pop() || '文件管理') : '设置').fontSize(this.tab === 0 ? 32 : 18).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (this.tab === 1) {
             Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
-          } else { Text('0.1.5').fontSize(12).fontColor('#8E8E93') }
+          } else { Text('0.1.6').fontSize(12).fontColor('#8E8E93') }
         }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 12 })
         if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
@@ -398,11 +395,10 @@ struct Index {
           Scroll() {
             Column({ space: 16 }) {
               Column({ space: 12 }) {
-              Text('原生下载核心').fontSize(16).fontWeight(FontWeight.Medium)
-              Text('libtorrent ' + this.version + '\nTCP / μTP · DHT · Tracker · 断点续传').fontSize(15)
-              Text('Peer 客户端标志：Htorrent 0.1.5').fontSize(13)
-              Text(this.networkSummary).fontSize(14)
-              Text(this.networkDetail).fontSize(12).fontColor('#666666')
+              Text('下载核心网络状态').fontSize(16).fontWeight(FontWeight.Medium)
+              Text('运行端口：' + this.networkPort).fontSize(14)
+              Text('DHT 节点数：' + this.networkDht).fontSize(14)
+              Text('Tracker 响应数：' + this.networkTrackers).fontSize(14)
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
               Text('后台传输').fontSize(16).fontWeight(FontWeight.Medium)
@@ -418,7 +414,7 @@ struct Index {
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
               Column({ space: 12 }) {
               Text('版本信息').fontSize(16).fontWeight(FontWeight.Medium)
-              Text('BTmobie V0.1.5 调试版\n调试安装需要匹配设备的签名与 Profile。AV1 支持 dav1d 兼容解码，性能与画质仍需真机验证。').fontSize(13).fontColor('#666666')
+              Text('BTmobie V0.1.6 调试版\n调试安装需要匹配设备的签名与 Profile。AV1 支持兼容解码。').fontSize(13).fontColor('#666666')
               Text('下载目录\n' + this.root).fontSize(12)
               Text('基线：iOS V1.2.5\n订阅、WebDAV、完整 VLC 编码与压缩格式支持仍在移植，不代表与 iOS 功能完全等同。').fontSize(14).fontColor('#666666')
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)

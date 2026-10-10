@@ -10,6 +10,8 @@ timeout 25 "$TEST/media-test" "$TEST/av1-10bit.mkv" silent
 printf '1\n00:00:00,000 --> 00:00:04,000\nAV1 subtitle sample\n' > "$TEST/subtitle.srt"
 ffmpeg -hide_banner -loglevel error -i "$TEST/av1.mp4" -i "$TEST/subtitle.srt" -map 0:v -map 0:a -map 0:a -map 1:s -c copy -metadata:s:s:0 language=chi -metadata:s:s:0 title='Simplified Chinese' "$TEST/tracks.mkv"
 timeout 25 "$TEST/media-test" "$TEST/tracks.mkv" tracks
+ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=96x64:rate=10 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 32 -c:v libaom-av1 -cpu-used 8 -g 50 -crf 40 -c:a aac "$TEST/seek10.mkv"
+timeout 25 "$TEST/media-test" "$TEST/seek10.mkv" seek10
 g++ -std=c++17 -O1 -pthread "$ROOT/tests/media_probe_test.cpp" -I"$ROOT/native-deps/headers" $(pkg-config --cflags --libs libavformat libavcodec libavutil libswresample libswscale) -o "$TEST/probe-test"
 timeout 15 "$TEST/probe-test" "$TEST/tracks.mkv"
 g++ -std=c++17 -O1 -pthread "$ROOT/tests/media_gles_test.cpp" -I"$ROOT/native-deps/headers" $(pkg-config --cflags --libs libavformat libavcodec libavutil libswresample libswscale egl glesv2) -o "$TEST/gles-test"

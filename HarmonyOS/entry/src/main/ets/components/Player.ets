@@ -5,7 +5,7 @@ import common from '@ohos.app.ability.common';
 import { BusinessError } from '@ohos.base';
 import hilog from '@ohos.hilog';
 import { compatibility } from '../model/CompatPlayer';
-import { isAv1DecoderFailure, canControlPlayback } from '../model/PlaybackPolicy';
+import { isAv1DecoderFailure, canControlPlayback, clampSeekTarget, relativeSeekTarget } from '../model/PlaybackPolicy';
 import { trackLabel, enrichTracks } from '../model/TrackLabels';
 
 @Component
@@ -24,6 +24,8 @@ export struct Player {
   private timer: number = -1;
   private subtitleTimer: number = -1;
   private lastProgress: number = 0;
+  private seekTarget: number = -1;
+  private seekRequestedAt: number = 0;
   private disposed: boolean = false;
   private compatToken: number = -1;
   private compatTimer: number = -1;
@@ -96,6 +98,14 @@ export struct Player {
         } catch(e) { if (!this.disposed && !this.fallbackAttempted) this.handleError(e as BusinessError); }
       });
       created.on('startRenderFrame', () => { this.firstNativeFrame = true; this.waiting = false; hilog.info(0x1202, 'BTMobilePlayer', 'Native first frame rendered'); });
+      created.on('seekDone', (requested: number) => {
+        if (this.player !== created || this.disposed || this.fallbackAttempted) return;
+        const actual = created.currentTime;
+        if (actual >= 0) this.playbackPosition = actual;
+        if (Math.abs(requested - this.seekTarget) <= 1) this.seekTarget = -1;
+        this.waiting = false;
+        hilog.info(0x1202, 'BTMobilePlayer', 'seek completed requested=%{public}d actual=%{public}d', requested, actual);
+      });
       created.on('trackChange', (index: number, selected: boolean) => {
         if (this.disposed || this.player !== created) return;
         this.selectedTracks = this.selectedTracks.filter((id: number) => id !== index);
@@ -164,6 +174,7 @@ export struct Player {
       const wasPlaying = this.playing; const wasReady = this.playbackReady;
       this.playbackReady = state.ready ?? false; this.playing = state.playing ?? false;
       this.waiting = state.waiting ?? false; this.playbackPosition = Math.max(0, state.position ?? 0);
+      if (this.seekTarget >= 0 && Math.abs(this.playbackPosition - this.seekTarget) < 750) this.seekTarget = -1;
       this.duration = Math.max(1, state.duration ?? 1); this.tracks = state.tracks ?? [];
       this.selectedTracks = [state.audioTrack ?? -1, state.subtitleTrack ?? -1].filter((i: number) => i >= 0);
       if ((state.width ?? 0) > 0 && (state.height ?? 0) > 0) this.videoSize(state.width ?? 0, state.height ?? 0);
@@ -179,9 +190,24 @@ export struct Player {
   foregroundChanged(): void {
     if (!this.foreground && this.compatToken >= 0) this.control('pause');
   }
+  async skipBy(delta: number): Promise<void> {
+    if (this.disposed || !this.playbackReady || this.errorText) return;
+    // Read live state at click time; Builder value arguments capture old times.
+    const nativeTime = this.player?.currentTime ?? -1;
+    const current = !this.compatibilityMode && nativeTime >= 0 ? nativeTime : this.playbackPosition;
+    const pending = Date.now() - this.seekRequestedAt < 1500 ? this.seekTarget : -1;
+    await this.control('seek', relativeSeekTarget(current, delta, this.duration, pending));
+  }
   async control(op: string, value: number = 0): Promise<void> {
     if (this.disposed || !this.playbackReady || this.errorText) return;
+    if (!this.compatibilityMode && (!this.player || !canControlPlayback(this.nativeState))) return;
     try {
+      if (op === 'seek') {
+        value = clampSeekTarget(value, this.duration);
+        this.seekTarget = value; this.seekRequestedAt = Date.now();
+        this.waiting = true; this.subtitle = ''; clearTimeout(this.subtitleTimer);
+        hilog.info(0x1202, 'BTMobilePlayer', 'seek requested from=%{public}d to=%{public}d', this.playbackPosition, value);
+      }
       if (this.compatibilityMode) {
         if (op === 'play' && this.compatComplete) await compatibility({ op: 'seek', token: this.compatToken, position: 0 });
         await compatibility({ op: op, token: this.compatToken, position: Math.floor(value), track: Math.floor(value) });
@@ -197,9 +223,11 @@ export struct Player {
           this.selectedTracks = await player.getSelectedTracks(); this.subtitle = '';
         }
       }
-      if (op === 'seek') { this.waiting = true; this.subtitle = ''; }
       this.autoHide();
-    } catch(e) { this.warningText = '操作未完成：' + (e as Error).message; }
+    } catch(e) {
+      if (op === 'seek') { this.seekTarget = -1; this.waiting = false; }
+      this.warningText = '操作未完成：' + (e as Error).message; this.controls = true;
+    }
   }
   autoHide(): void {
     clearTimeout(this.timer);
@@ -288,14 +316,6 @@ export struct Player {
   panelWidth(): number { return Math.min(340, Math.max(220, this.areaWidth - 32)); }
   panelHeight(): number { return Math.max(100, Math.min(390, this.areaHeight - 160)); }
   @Builder
-  roundControl(icon: Resource, label: string, op: string, value: number, large: boolean) {
-    Button({ type: ButtonType.Circle }) {
-      Image(icon).width(large ? 32 : 28).height(large ? 32 : 28).fillColor(Color.White)
-    }.width(large ? 76 : 56).height(large ? 76 : 56)
-      .backgroundColor('#88333333').border({ width: 1, color: '#66FFFFFF' })
-      .enabled(this.playbackReady).accessibilityText(label).onClick(() => { this.control(op, value); })
-  }
-  @Builder
   menuButton(label: string, selected: boolean, action: () => void) {
     Button(label).height(44).fontSize(14).fontColor(selected ? '#F6AE7A' : Color.White)
       .backgroundColor(selected ? '#CC544034' : '#99333333').padding({ left: 16, right: 16 }).onClick(action)
@@ -341,9 +361,19 @@ export struct Player {
         }
         if (!this.errorText && this.trackPanel < 0) {
           Row({ space: 26 }) {
-            this.roundControl($r('app.media.player_back10'), '倒退 10 秒', 'seek', Math.max(0, this.playbackPosition - 10000), false)
-            this.roundControl(this.playing ? $r('app.media.action_pause') : $r('app.media.action_play'), this.playing ? '暂停' : '播放', this.playing ? 'pause' : 'play', 0, true)
-            this.roundControl($r('app.media.player_forward10'), '前进 10 秒', 'seek', Math.max(0, Math.min(this.duration - 1, this.playbackPosition + 10000)), false)
+            Button({ type: ButtonType.Circle }) {
+              Image($r('app.media.player_back10')).width(32).height(32)
+            }.width(56).height(56).backgroundColor('#88333333').border({ width: 1, color: '#66FFFFFF' })
+              .enabled(this.playbackReady).accessibilityText('倒退 10 秒').onClick(() => { this.skipBy(-10000); })
+            Button({ type: ButtonType.Circle }) {
+              Image(this.playing ? $r('app.media.action_pause') : $r('app.media.action_play')).width(32).height(32).fillColor(Color.White)
+            }.width(76).height(76).backgroundColor('#88333333').border({ width: 1, color: '#66FFFFFF' })
+              .enabled(this.playbackReady).accessibilityText(this.playing ? '暂停' : '播放')
+              .onClick(() => { this.control(this.playing ? 'pause' : 'play'); })
+            Button({ type: ButtonType.Circle }) {
+              Image($r('app.media.player_forward10')).width(32).height(32)
+            }.width(56).height(56).backgroundColor('#88333333').border({ width: 1, color: '#66FFFFFF' })
+              .enabled(this.playbackReady).accessibilityText('前进 10 秒').onClick(() => { this.skipBy(10000); })
           }.width(240).height(76).justifyContent(FlexAlign.Center)
             .position({ x: Math.max(0, this.areaWidth / 2 - 120), y: Math.max(90, this.areaHeight / 2 - 38) }).zIndex(5)
         }
@@ -399,11 +429,13 @@ export struct Player {
           .backgroundColor('#F02C2C30').borderRadius(24).border({ width: 1, color: '#44FFFFFF' })
           .position({ x: Math.max(16, this.areaWidth - this.panelWidth() - 20), y: Math.max(84, this.areaHeight - this.panelHeight() - 144) }).zIndex(20)
       }
-      // Always visible and above the selector, buffering and error layers.
-      Button('×', { type: ButtonType.Circle }).width(48).height(48).fontSize(34).fontColor(Color.White)
-        .backgroundColor('#BB222222').border({ width: 1, color: '#66FFFFFF' })
-        .position({ x: Math.max(12, this.areaWidth - 72), y: 20 }).zIndex(40)
-        .accessibilityText('关闭播放器').onClick(() => { this.close(); })
+      // Hide with the controls during playback; errors and menus retain an exit.
+      if (this.controls || this.trackPanel >= 0 || this.errorText.length > 0) {
+        Button('×', { type: ButtonType.Circle }).width(48).height(48).fontSize(34).fontColor(Color.White)
+          .backgroundColor('#BB222222').border({ width: 1, color: '#66FFFFFF' })
+          .position({ x: Math.max(12, this.areaWidth - 72), y: 20 }).zIndex(40)
+          .accessibilityText('关闭播放器').onClick(() => { this.close(); })
+      }
     }.width('100%').height('100%').backgroundColor(Color.Black).clip(true)
       .onAreaChange((_old: Area, area: Area) => {
         this.areaWidth = Math.max(1, Number(area.width)); this.areaHeight = Math.max(1, Number(area.height));

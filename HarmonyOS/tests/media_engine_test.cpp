@@ -2,13 +2,13 @@
 #include <fcntl.h>
 #include <iostream>
 using namespace btmmedia;
-struct Counters {std::atomic<int> frames{0},nonzeroAudio{0};};
+struct Counters {std::atomic<int> frames{0},nonzeroAudio{0};std::atomic<int64_t> lastPts{AV_NOPTS_VALUE};};
 class Headless final:public Output {
     Counters& counters;std::thread sound;std::atomic<bool> stop{false};
 public:
     explicit Headless(Counters& c):counters(c){}
     void initVideo()override{}
-    void draw(AVFrame* f)override{if(f->width<=0||!f->data[0])throw std::runtime_error("empty video frame");++counters.frames;}
+    void draw(AVFrame* f)override{if(f->width<=0||!f->data[0])throw std::runtime_error("empty video frame");counters.lastPts=f->best_effort_timestamp;++counters.frames;}
     void closeVideo()override{}
     void startAudio(std::function<void(void*,int)> fill,std::function<void()>)override{
         sound=std::thread([this,fill]{uint8_t buffer[3840];while(!stop){fill(buffer,sizeof buffer);if(std::any_of(std::begin(buffer),std::end(buffer),[](uint8_t c){return c!=0;}))++counters.nonzeroAudio;std::this_thread::sleep_for(std::chrono::milliseconds(20));}});
@@ -29,6 +29,22 @@ int main(int argc,char** argv){try{
     int frameCount=counters.frames;engine.seek(1500);
     waitFor(engine,[&](const Json& s){return counters.frames>frameCount&&s["position"].get<double>()>=1490;});
     check(!engine.status()["playing"].get<bool>(),"seek preserves pause");
+    if(mode=="seek10") {
+        int previousTarget=1500;
+        for(int target:{2000,12000,22000,12000}) {
+            int rendered=counters.frames;int64_t pts=counters.lastPts;
+            engine.seek(target);
+            waitFor(engine,[&](const Json& s){return counters.frames>rendered&&std::abs(s["position"].get<double>()-target)<40;});
+            check(!engine.status()["playing"].get<bool>(),"ten-second seek must preserve pause");
+            check(target>previousTarget?counters.lastPts>pts:counters.lastPts<pts,"presented picture timestamp must really move with seek");
+            previousTarget=target;
+        }
+        engine.pause(false);waitFor(engine,[](const Json& s){return s["position"].get<double>()>12100;});
+        int rendered=counters.frames;engine.seek(22000);
+        waitFor(engine,[&](const Json& s){return counters.frames>rendered&&s["position"].get<double>()>=21990;});
+        check(engine.status()["playing"].get<bool>(),"seek while playing must keep playing");
+        engine.stop();std::cout<<"PASS AV1 forward/backward 10s changes presented frame PTS, repeated seeks, paused/playing\n";return 0;
+    }
     if(mode=="tracks") {
         auto ts=engine.status()["tracks"];int audio=-1,sub=-1;for(auto const& t:ts){if(t["track_type"]==0)audio=t["track_index"];if(t["track_type"]==2)sub=t["track_index"];}
         check(audio>=0&&sub>=0,"audio and subtitle tracks exposed");engine.selectTrack(audio);
