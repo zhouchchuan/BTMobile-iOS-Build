@@ -1,4 +1,5 @@
 import { call, NetworkSettings } from '../model/Native';
+import { SettingNumber, SettingSwitch } from './SettingField';
 
 @Component
 export struct SettingsPanel {
@@ -59,17 +60,26 @@ export struct SettingsPanel {
         autoAddTrackers: this.autoTrackers, customTrackers: this.custom.split(/\r?\n/).map((s: string) => s.trim()).filter((s: string) => s.length > 0)
       };
       await call({ op: 'setNetworkSettings', settings: settings });
+      await this.load();
       this.message = '设置已保存并应用；不需要重启下载核心。Tracker 自动补充规则用于新添加的任务。'; this.onSaved();
     } catch(e) { this.message = '保存失败：' + (e as Error).message; }
     finally { this.saving = false; }
   }
-  @Builder
-  toggle(title: string, value: boolean, change: (value: boolean) => void) {
-    Row() { Text(title).fontSize(15).layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: value }).selectedColor('#34C759').onChange(change) }.width('100%')
-  }
-  @Builder
-  numeric(title: string, value: string, change: (value: string) => void) {
-    Row({ space: 8 }) { Text(title).fontSize(15).layoutWeight(1); TextInput({ text: value }).type(InputType.Number).width(110).onChange(change) }.width('100%')
+  async saveQueue(): Promise<void> {
+    if (!this.loaded || this.saving) return;
+    this.saving = true; this.message = '';
+    try {
+      const update: NetworkSettings = { queueEnabled: this.queue,
+        maxActive: this.number(this.active, '总活跃任务数', 0, 1000),
+        maxDownloads: this.number(this.downloads, '同时下载数', 0, 1000),
+        maxSeeds: this.number(this.seeds, '同时做种数', 0, 1000) };
+      await call({ op: 'setNetworkSettings', settings: update });
+      const saved = (await call({ op: 'getNetworkSettings' })).settings;
+      if (!saved || saved.queueEnabled !== update.queueEnabled || saved.maxActive !== update.maxActive ||
+        saved.maxDownloads !== update.maxDownloads || saved.maxSeeds !== update.maxSeeds) throw new Error('核心回读值不一致，请重试');
+      this.message = '队列设置已保存并回读确认'; this.onSaved();
+    } catch(e) { this.message = '保存失败：' + (e as Error).message; }
+    finally { this.saving = false; }
   }
   build() {
     Column({ space: 14 }) {
@@ -77,34 +87,36 @@ export struct SettingsPanel {
       Column({ space: 14 }) {
         Column({ space: 14 }) {
         Text('传输与做种').fontSize(16).fontWeight(FontWeight.Medium)
-        this.toggle('下载完成后继续做种', this.seedEnabled, (v: boolean) => { this.seedEnabled = v; })
-        this.numeric('下载限速（KiB/s）', this.download, (v: string) => { this.download = v; })
-        this.numeric('上传限速（KiB/s）', this.upload, (v: string) => { this.upload = v; })
+        SettingSwitch({ title: '下载完成后继续做种', value: $seedEnabled })
+        SettingNumber({ title: '下载限速（KiB/s）', value: $download })
+        SettingNumber({ title: '上传限速（KiB/s）', value: $upload })
         Text('0 表示不限速；1024 KiB/s = 1 MiB/s。限速包含局域网连接。下载任务也可以同时上传。').fontSize(12).fontColor('#666666')
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Column({ space: 14 }) {
         Text('任务队列').fontSize(16).fontWeight(FontWeight.Medium)
-        this.toggle('启用队列限制', this.queue, (v: boolean) => { this.queue = v; })
+        SettingSwitch({ title: '启用队列限制', value: $queue })
         Column({ space: 12 }) {
-          this.numeric('总活跃任务数', this.active, (v: string) => { this.active = v; })
-          this.numeric('同时下载任务数', this.downloads, (v: string) => { this.downloads = v; })
-          this.numeric('同时做种任务数', this.seeds, (v: string) => { this.seeds = v; })
+          SettingNumber({ title: '总活跃任务数', value: $active })
+          SettingNumber({ title: '同时下载任务数', value: $downloads })
+          SettingNumber({ title: '同时做种任务数', value: $seeds })
         }.enabled(this.queue)
         Text('总活跃数同时约束下载与做种。数量 0 表示该类任务等待；关闭队列则不限数量。手动暂停的任务不会因保存设置而自动继续。').fontSize(12).fontColor('#666666')
+        Button(this.saving ? '正在保存…' : '保存队列设置').fontColor('#EE9A64').backgroundColor('#FFF0E5').onClick(() => { this.saveQueue(); })
+        if (this.message) { Text(this.message).fontSize(12).fontColor('#995522') }
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Column({ space: 14 }) {
         Text('BT 网络').fontSize(16).fontWeight(FontWeight.Medium)
-        this.numeric('首选监听端口', this.port, (v: string) => { this.port = v; })
+        SettingNumber({ title: '首选监听端口', value: $port })
         Text('默认 6882。保留 IPv4 / IPv6 自动发现与可用端口回退；实际端口显示在网络状态中。').fontSize(12).fontColor('#666666')
-        this.toggle('DHT 节点发现', this.dht, (v: boolean) => { this.dht = v; })
-        this.toggle('LSD 本地发现', this.lsd, (v: boolean) => { this.lsd = v; })
-        this.toggle('NAT-PMP 映射', this.natPmp, (v: boolean) => { this.natPmp = v; })
-        this.toggle('UPnP 映射', this.upnp, (v: boolean) => { this.upnp = v; })
-        this.toggle('μTP 连接', this.utp, (v: boolean) => { this.utp = v; })
+        SettingSwitch({ title: 'DHT 节点发现', value: $dht })
+        SettingSwitch({ title: 'LSD 本地发现', value: $lsd })
+        SettingSwitch({ title: 'NAT-PMP 映射', value: $natPmp })
+        SettingSwitch({ title: 'UPnP 映射', value: $upnp })
+        SettingSwitch({ title: 'μTP 连接', value: $utp })
         }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
         Column({ space: 14 }) {
         Text('Tracker').fontSize(16).fontWeight(FontWeight.Medium)
-        this.toggle('新任务自动添加 Tracker', this.autoTrackers, (v: boolean) => { this.autoTrackers = v; })
+        SettingSwitch({ title: '新任务自动添加 Tracker', value: $autoTrackers })
         Text('默认地址').fontSize(15).fontWeight(FontWeight.Medium)
         Text(this.defaults).fontSize(12).width('100%').copyOption(CopyOptions.InApp)
         Text('自定义地址（每行一个）').fontSize(15).fontWeight(FontWeight.Medium)

@@ -1,4 +1,4 @@
-name: BTMobile HarmonyOS V0.1.3
+name: BTMobile HarmonyOS V0.1.4
 on:
   workflow_dispatch:
   push:
@@ -63,6 +63,20 @@ jobs:
         run: |
           bash HarmonyOS/ci/native-deps.sh
           bash HarmonyOS/ci/archive-deps.sh ohos
+      - name: Restore AV1 compatibility decoder cache
+        uses: actions/cache@v4
+        with:
+          path: HarmonyOS/native-deps/media
+          key: harmony-media-api12-arm64-ffmpeg801-dav1d153-v1
+      - name: Compile AV1 compatibility decoder
+        run: |
+          sudo apt-get install -y meson ninja-build pkg-config
+          bash HarmonyOS/ci/media-deps.sh
+      - name: Save AV1 compatibility decoder cache
+        uses: actions/cache/save@v4
+        with:
+          path: HarmonyOS/native-deps/media
+          key: harmony-media-api12-arm64-ffmpeg801-dav1d153-v1
       - name: Save native dependency cache before application compilation
         uses: actions/cache/save@v4
         with:
@@ -79,7 +93,8 @@ jobs:
       - name: Real native engine tracker and network adapter tests
         working-directory: HarmonyOS
         run: |
-          sudo apt-get install -y libarchive-dev libssl-dev 7zip zip
+          sudo apt-get install -y libarchive-dev libssl-dev 7zip zip ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev
+          bash ci/media-tests.sh
           bash ci/archive-deps.sh host
           export LD_LIBRARY_PATH="$PWD/native-deps/host-archive"
           cmake -S tests -B build-host -DCMAKE_BUILD_TYPE=Release
@@ -96,19 +111,22 @@ jobs:
           mkdir -p HarmonyOS/artifacts
           HAP=$(find HarmonyOS/entry/build -name '*unsigned.hap' -print -quit)
           test -n "$HAP"
-          cp "$HAP" HarmonyOS/artifacts/BTMobile_HarmonyOS_V0.1.3_Unsigned.hap
+          cp "$HAP" HarmonyOS/artifacts/BTMobile_HarmonyOS_V0.1.4_Unsigned.hap
           unzip -l "$HAP" | tee HarmonyOS/artifacts/package-contents.txt
           unzip -l "$HAP" | grep 'ets/modules.abc'
           unzip -l "$HAP" | grep 'libbtmobile.so'
           unzip -l "$HAP" | grep 'lib7zip.so'
+          unzip -l "$HAP" | grep 'libbtmedia.so'
+          unzip -l "$HAP" | grep 'libavcodec.so'
           mkdir -p HarmonyOS/artifacts/corresponding-source
           cp HarmonyOS/native-deps/sevenzip-26.04.tar.gz HarmonyOS/native-deps/bit7z.tar.gz HarmonyOS/artifacts/corresponding-source/
           cp HarmonyOS/ci/patch-archive.py HarmonyOS/ci/archive-deps.sh HarmonyOS/artifacts/corresponding-source/
+          cp HarmonyOS/native-deps/media/ffmpeg-8.0.1.tar.xz HarmonyOS/native-deps/media/dav1d-1.5.3.tar.xz HarmonyOS/ci/media-deps.sh HarmonyOS/artifacts/corresponding-source/
           sha256sum HarmonyOS/artifacts/*.hap | tee HarmonyOS/artifacts/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: BTMobile-HarmonyOS-V0.1.3
+          name: BTMobile-HarmonyOS-V0.1.4
           path: |
             HarmonyOS/artifacts/
             HarmonyOS/entry/build/default/outputs/default/*.hap

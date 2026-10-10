@@ -1,0 +1,22 @@
+const fs = require('fs');
+const vm = require('vm');
+const path = require('path');
+const ts = require(process.argv[2]);
+const sdkLoader = path.resolve(path.dirname(process.argv[2]), '../../..');
+const options = JSON.parse(fs.readFileSync(path.join(sdkLoader,'tsconfig.json'),'utf8')).compilerOptions;
+options.ets.components.push('TaskCard','SettingsPanel','Player','IconButton','TaskDetails','ImageViewer');
+const assert = require('assert/strict');
+const root = path.resolve(__dirname, '..');
+let count = 0;
+function inspect(dir) { for (const entry of fs.readdirSync(dir, {withFileTypes:true})) { const file = path.join(dir, entry.name); if (entry.isDirectory()) inspect(file); else if (file.endsWith('.ets')) {const parsed=ts.createSourceFile(file,fs.readFileSync(file,'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.ETS,options);assert.equal(parsed.parseDiagnostics.length,0,file+': '+JSON.stringify(parsed.parseDiagnostics.map(x=>x.messageText)));count++;}} }
+inspect(path.join(root,'entry/src/main/ets'));
+const context={exports:{}}; vm.createContext(context);
+const code=ts.transpileModule(fs.readFileSync(path.join(root,'entry/src/main/ets/model/PlaybackPolicy.ets'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2021}}).outputText;
+vm.runInContext(code,context);const p=context.exports;
+assert(p.isAv1DecoderFailure('Unsupported Format: VID_DEC_ERR-video/av1-unsupport interface, unsupport video decoder type',5400106));
+assert(p.isAv1DecoderFailure('video/av01 decoder unsupported',5400106));
+assert(!p.isAv1DecoderFailure('Unsupported Format: video/hevc',5400106));
+assert(!p.isAv1DecoderFailure('Cannot read AV1 movie.mp4',5400103));
+for(const s of ['idle','initialized','error','released','stopped'])assert(!p.canControlPlayback(s));
+for(const s of ['prepared','playing','paused','completed'])assert(p.canControlPlayback(s));
+console.log(`PASS ${count} ArkTS syntax files, AV1-only fallback and invalid-state controls`);

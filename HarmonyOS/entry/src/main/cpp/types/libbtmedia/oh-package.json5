@@ -1,0 +1,1 @@
+{ "name": "libbtmedia.so", "version": "1.0.0", "description": "Local AV1 compatibility decoder", "types": "./index.d.ts" }

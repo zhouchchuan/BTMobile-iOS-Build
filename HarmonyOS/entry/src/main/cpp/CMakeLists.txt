@@ -32,3 +32,15 @@ target_link_libraries(btmobile PRIVATE bit7z -Wl,--no-as-needed sevenzip -Wl,--a
 target_include_directories(btmobile PRIVATE "${DEPS}/headers" "${DEPS}/prefix/include")
 target_link_libraries(btmobile PRIVATE torrent-rasterbar "${DEPS}/prefix/lib/libarchive.a" "${DEPS}/prefix/lib/liblzma.a" "${DEPS}/prefix/lib/libz.a" OpenSSL::SSL OpenSSL::Crypto libace_napi.z.so libhilog_ndk.z.so)
 target_compile_options(btmobile PRIVATE -Wall -Wextra)
+
+# Keep the AV1 compatibility decoder separate from the established BT core.
+set(MEDIA_PREFIX "${DEPS}/media/prefix")
+add_library(btmedia SHARED media_bridge.cpp)
+target_include_directories(btmedia PRIVATE "${DEPS}/headers" "${MEDIA_PREFIX}/include")
+foreach(component avformat avcodec avutil swresample swscale)
+    add_library(media_${component} SHARED IMPORTED)
+    set_target_properties(media_${component} PROPERTIES IMPORTED_LOCATION "${MEDIA_PREFIX}/lib/lib${component}.so")
+    target_link_libraries(btmedia PRIVATE media_${component})
+endforeach()
+target_link_libraries(btmedia PRIVATE libace_napi.z.so libhilog_ndk.z.so libnative_window.so libEGL.so libGLESv2.so libohaudio.so)
+target_compile_options(btmedia PRIVATE -Wall -Wextra)

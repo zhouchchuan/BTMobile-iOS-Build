@@ -360,8 +360,8 @@ public:
                 if (input) { json saved; input >> saved; networkSettings = validatedSettings(saved); btListenPort = networkSettings.at("listenPort"); }
             } catch (...) { diagnosticLog("invalid saved network settings; using defaults"); }
             lt::settings_pack settings = settingsPack();
-            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.3");
-            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0130-");
+            settings.set_str(lt::settings_pack::user_agent, "Htorrent/0.1.4");
+            settings.set_str(lt::settings_pack::peer_fingerprint, "-HT0140-");
             // 6882 (or the user's port) is a preference, not a restriction.
             // Preserve libtorrent's port retries, OS fallback, IPv4/IPv6 peer
             // discovery, outgoing ephemeral ports and NAT mapping negotiation.
