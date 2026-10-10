@@ -58,7 +58,10 @@ int main(int argc,char** argv) {
     // fixed peer injected into the client, and no external payload or swarm.
     httplib::Server tracker;
     std::atomic<int> announces{0};
-    tracker.Get("/announce", [&](httplib::Request const&, httplib::Response& res) {
+    std::atomic<bool> clientAgentSeen{false}, clientFingerprintSeen{false};
+    tracker.Get("/announce", [&](httplib::Request const& req, httplib::Response& res) {
+        if (req.get_header_value("User-Agent") == "Htorrent/1.0.3") clientAgentSeen = true;
+        if (req.get_param_value("peer_id").rfind("-HT1030-", 0) == 0) clientFingerprintSeen = true;
         ++announces; int seedPort = seeder.listen_port();
         std::string peers; peers += char(127); peers += char(0); peers += char(0); peers += char(1);
         peers += char(seedPort >> 8); peers += char(seedPort & 255);
@@ -133,6 +136,8 @@ int main(int argc,char** argv) {
     }
     assert(complete);
     assert(announces > 0);
+    assert(clientAgentSeen && clientFingerprintSeen);
+    std::cout << "PASS: Tracker received Htorrent/1.0.3 and -HT1030- peer identity\n";
     auto net = core.call({{"op","tasks"}}).at("network");
     assert(net.at("listening") == true && net.at("configuredPort") == 6882);
     assert(net.at("listenPort").get<int>() > 0 && net.at("listenPort") != 6882);

@@ -25,6 +25,9 @@ Allowed return restores saved settings. Both switches off blocks BT. Subscriptio
 HTTP and downloaded-file playback remain independent. This is an app transfer policy,
 not an OS firewall guarantee; real phone Wi-Fi/cellular transitions need acceptance.
 
-AV1/player/archive sources, peer fingerprint, rate/queue/DHT/Tracker defaults unchanged.
+BT client identity updated to Htorrent/1.0.3; peer fingerprint is -HT1030-.
+Loopback tracker checks the actual User-Agent and peer_id from native announces.
+AV1/player/archive sources and rate/queue/DHT/Tracker defaults unchanged.
 No app uninstall, download deletion, database reset, secret/log/video upload.
-Full cloud compilation and native integration tests pending.
+Cloud compilation and native integration tests passed before identity update.
+Final identity-update build and its integration tests pending.
