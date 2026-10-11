@@ -30,7 +30,7 @@ class ThemeService {
       const previous = AppStorage.get<string>('btmobileTheme') ?? 'system';
       this.apply(next);
       try { await this.store.put('themeMode', next); await this.store.flush(); }
-      catch (e) { this.apply(previous); await this.store.put('themeMode', previous); throw e; }
+      catch (e) { this.apply(previous); await this.store.put('themeMode', previous); throw e as Error; }
     });
     this.writes = pending.catch(() => {});
     return pending;

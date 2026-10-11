@@ -534,12 +534,12 @@ struct Index {
       }
       if (this.textPath) {
         Column() {
-          Row() { Button('返回').onClick(() => { this.textPath = ''; }); Text(this.textPath.split('/').pop() ?? '文本').fontSize(16).maxLines(1).layoutWeight(1).padding(12); Button(this.editing ? '保存' : '编辑').onClick(() => {
+          Row() { IconButton({ icon: $r('app.media.nav_back'), label: '关闭文本', action: () => { this.textPath = ''; } }); Text(this.textPath.split('/').pop() ?? '文本').fontSize(16).maxLines(1).layoutWeight(1).padding(12); Button(this.editing ? '保存' : '编辑').onClick(() => {
             if(this.editing) {
               try { const f = fs.openSync(this.root + '/' + this.textPath, fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC); try { fs.writeSync(f.fd, this.text); } finally { fs.closeSync(f); } this.splitText(); this.editing = false; } catch(e) { this.fail(e as Error); }
             } else this.editing = true;
           }) }.padding(12)
-          if (this.editing) { TextArea({ text: this.text }).onChange((v: string) => { this.text = v; }).fontSize(14).layoutWeight(1).width('100%') }
+          if (this.editing) { TextArea({ text: this.text }).onChange((v: string) => { this.text = v; }).fontSize(14).fontColor($r('app.color.text_primary')).backgroundColor($r('app.color.card_background')).layoutWeight(1).width('100%') }
           else {
             Scroll() {
               Text() {

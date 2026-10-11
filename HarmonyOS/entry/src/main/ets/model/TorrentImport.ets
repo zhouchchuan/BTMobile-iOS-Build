@@ -19,7 +19,8 @@ export function checkTorrentBytes(buffer: ArrayBuffer): void {
 export class TorrentImport {
   // Only remove files owned by this instance, never the picked original.
   private owned: Set<string> = new Set<string>();
-  constructor(private root: string) {}
+  private root: string;
+  constructor(root: string) { this.root = root; }
   private save(buffer: ArrayBuffer): string {
     checkTorrentBytes(buffer);
     const name = '.btmobile-import-' + util.generateRandomUUID() + '.torrent';
@@ -34,7 +35,7 @@ export class TorrentImport {
         if (count <= 0) throw new Error('无法完整保存 Torrent 文件');
         written += count;
       }
-    } catch (e) { fs.closeSync(file); this.release(name); throw e; }
+    } catch (e) { fs.closeSync(file); this.release(name); throw e as Error; }
     fs.closeSync(file);
     return name;
   }
