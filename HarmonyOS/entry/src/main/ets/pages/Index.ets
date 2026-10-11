@@ -17,6 +17,8 @@ import { networkDisplay, deletionBanner } from '../model/NetworkDisplay';
 import { SubscriptionService, SubscriptionState } from '../model/SubscriptionService';
 import { SubscriptionPanel, subscriptionDate } from '../components/SubscriptionPanel';
 import { APP_VERSION } from '../model/SubscriptionPolicy';
+import { incomingMagnet as normalizeMagnet } from '../model/IncomingLink';
+import { TorrentImport } from '../model/TorrentImport';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number; modified?: number }
 interface TextPart { value: string; link: boolean }
@@ -29,6 +31,10 @@ struct Index {
   private polling: boolean = false;
   private detailPolling: boolean = false;
   private deletionRevision: number = 0;
+  private lastPollError: string = '';
+  private lastDetailError: string = '';
+  private torrentImport: TorrentImport | undefined = undefined;
+  private stagedTorrent: string = '';
   private pageVisible: boolean = false;
   @StorageLink('btmobileForeground') @Watch('foregroundChanged') foreground: boolean = true;
   private preferencesStore: preferences.Preferences | undefined = undefined;
@@ -37,6 +43,9 @@ struct Index {
   @StorageLink('incomingMagnet') @Watch('receiveMagnet') incomingMagnet: string = '';
   @StorageLink('notificationTask') @Watch('receiveNotificationTask') notificationTask: string = '';
   @State showAdd: boolean = false;
+  @State showAddMenu: boolean = false;
+  @State addMode: string = 'magnet';
+  @State torrentName: string = '';
   @State adding: boolean = false;
   @State keyword: string = '';
   @State taskFilter: number = 0;
@@ -83,6 +92,9 @@ struct Index {
   onBackPress(): boolean {
     if (this.playerSource) { this.playerCloseRequest++; return true; }
     if (this.showSubscription) { this.subscriptionBackRequest++; return true; }
+    if (this.showAdd) { this.cancelAdd(); return true; }
+    if (this.showAddMenu) { this.showAddMenu = false; return true; }
+    if (this.selectedTask) { this.selectedTask = ''; return true; }
     return false;
   }
 
@@ -91,6 +103,7 @@ struct Index {
     const context = getContext(this) as common.UIAbilityContext;
     this.root = context.filesDir + '/Download';
     if (!fs.accessSync(this.root)) fs.mkdirSync(this.root, true);
+    this.torrentImport = new TorrentImport(this.root);
     try {
       this.preferencesStore = await preferences.getPreferences(context, { name: 'btmobile-settings' });
       this.allowBackground = (await this.preferencesStore.get('allowBackground', false)) as boolean;
@@ -109,10 +122,11 @@ struct Index {
     } catch (e) { this.status = '核心启动失败：' + (e as Error).message; }
     this.list();
   }
-  aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; this.subscriptions.stop(); }
+  aboutToDisappear(): void { this.pageVisible = false; clearInterval(this.poll); this.poll = -1; this.subscriptions.stop(); if (!this.adding) this.torrentImport?.releaseAll(); }
   foregroundChanged(): void { this.subscriptions.setForeground(this.foreground); if (this.foreground && this.ready && this.pageVisible) this.refresh(); }
   receiveMagnet(): void {
-    if (!this.ready || !this.incomingMagnet) return;
+    if (!this.ready || !this.incomingMagnet || this.adding) return;
+    this.cancelAdd(); this.addMode = 'magnet'; this.showAddMenu = false;
     this.magnet = this.incomingMagnet; this.incomingMagnet = ''; this.tab = 0; this.selectedTask = ''; this.showAdd = true;
   }
   receiveNotificationTask(): void {
@@ -137,7 +151,9 @@ struct Index {
       const old = this.tasks;
       if ((result.deletionRevision ?? 0) > this.deletionRevision) {
         this.deletionRevision = result.deletionRevision ?? 0;
-        this.status = deletionBanner(result.deletionMessage ?? ''); this.list();
+        const failure = deletionBanner(result.deletionMessage ?? '');
+        if (failure) promptAction.showToast({ message: failure, duration: 3000 });
+        this.list();
       }
       this.tasks = (result.items ?? []).map((value: TaskInfo): TaskState => {
         const row = old.find((item: TaskState) => item.id === value.id) ?? new TaskState();
@@ -148,19 +164,25 @@ struct Index {
         this.networkPort = display.port; this.networkDht = display.dht; this.networkTrackers = display.trackers;
       }
       // BackgroundTransfer owns completion delivery and lifetime outside the page.
+      this.lastPollError = '';
       this.refreshDetails();
-    } catch (e) { this.status = (e as Error).message; }
+    } catch (e) { this.pollError(e as Error); }
     finally { this.polling = false; }
   }
-  fail(e: Error): void { this.status = e.message; promptAction.showToast({ message: e.message, duration: 3000 }); }
+  fail(e: Error): void { promptAction.showToast({ message: e.message, duration: 3000 }); }
+  pollError(e: Error): void {
+    if (this.lastPollError !== e.message && this.pageVisible) this.fail(e);
+    this.lastPollError = e.message;
+  }
   async refreshDetails(): Promise<void> {
     if (this.detailPolling) return;
     this.detailPolling = true;
+    const selected = this.selectedTask;
     try {
       if (this.extracting) this.percent = Math.max(0, (await call({ op: 'archiveProgress' })).percent ?? 0);
-      const selected = this.selectedTask;
       if (selected) {
         const items = await files(selected);
+        if (this.selectedTask !== selected) return;
         if (this.selectedTask === selected) this.taskFiles = items;
         const trackers = (await call({ op: 'trackers', id: selected })).trackers ?? [];
         if (this.selectedTask === selected) this.trackerRows = trackers;
@@ -169,7 +191,13 @@ struct Index {
           if (this.selectedTask === selected && this.showPeers) this.peerRows = rows;
         }
       }
-    } catch(e) { this.status = (e as Error).message; }
+      this.lastDetailError = '';
+    } catch(e) {
+      // Deleted/closed detail requests may finish late; never resurrect their errors in the task page.
+      if (selected && this.selectedTask === selected && this.lastDetailError !== (e as Error).message) {
+        this.lastDetailError = (e as Error).message; this.fail(e as Error);
+      }
+    }
     finally { this.detailPolling = false; }
   }
   setAllowBackground(value: boolean): void {
@@ -181,18 +209,55 @@ struct Index {
       await store.put('allowBackground', value); await store.flush();
     }).catch((e: Error) => { this.fail(new Error('后台设置保存失败：' + e.message)); });
   }
-  async add(): Promise<void> {
-    if (!this.magnet.trim() || !this.ready || this.adding) return;
-    if (!/^magnet:\?/i.test(this.magnet.trim())) { this.fail(new Error('请输入有效的 magnet: 磁力链接')); return; }
+  beginAdd(mode: string): void {
+    if (this.adding) return;
+    this.cancelAdd(); this.showAddMenu = false; this.addMode = mode; this.tab = 0;
+    if (mode === 'file') this.pickTorrent(); else this.showAdd = true;
+  }
+  cancelAdd(): void {
+    if (this.adding) return;
+    this.torrentImport?.release(this.stagedTorrent); this.stagedTorrent = ''; this.torrentName = '';
+    this.showAdd = false; this.magnet = '';
+  }
+  async pickTorrent(): Promise<void> {
+    if (!this.ready || this.adding) return;
     this.adding = true;
     try {
+      const result = await new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext)
+        .select({ maxSelectNumber: 1, fileSuffixFilters: ['Torrent 种子文件|.torrent'] });
+      if (result.length === 0) return;
+      if (!this.torrentImport) throw new Error('文件导入尚未就绪');
+      this.stagedTorrent = this.torrentImport.fromFile(result[0]);
+      try { this.torrentName = decodeURIComponent(result[0].split('/').pop() ?? 'Torrent 文件'); }
+      catch (_) { this.torrentName = 'Torrent 文件'; }
+      this.showAdd = true;
+    } catch (e) { this.fail(e as Error); }
+    finally { this.adding = false; this.receiveMagnet(); }
+  }
+  async add(): Promise<void> {
+    if (!this.ready || this.adding) return;
+    if (this.addMode !== 'file' && !this.magnet.trim()) return;
+    this.adding = true;
+    let downloaded = '';
+    try {
+      let source = this.stagedTorrent;
+      if (this.addMode === 'magnet') {
+        source = normalizeMagnet(this.magnet);
+        if (!source) throw new Error('请输入有效的 magnet: 磁力链接');
+      } else if (this.addMode === 'url') {
+        if (!this.torrentImport) throw new Error('文件导入尚未就绪');
+        downloaded = await this.torrentImport.fromUrl(this.magnet); source = downloaded;
+      }
+      if (!source) throw new Error('请重新选择 Torrent 文件');
       await backgroundTransfer.prepareTransfer();
-      const admitted = await this.subscriptions.addTask(this.magnet.trim().replace(/^magnet:/i, 'magnet:'));
-      if (!admitted) { this.showAdd = false; this.showSubscription = true; return; }
+      // All three sources share validation, duplicate detection, quota reservation and failure refunds.
+      const admitted = await this.subscriptions.addTask(source);
+      if (!admitted) { this.torrentImport?.release(this.stagedTorrent); this.stagedTorrent = ''; this.showAdd = false; this.showSubscription = true; return; }
+      this.torrentImport?.release(this.stagedTorrent); this.stagedTorrent = '';
       this.magnet = ''; this.status = ''; this.showAdd = false; this.tab = 0; this.keyword = ''; this.taskFilter = 0; await this.refresh();
     }
     catch(e) { this.fail(e as Error); }
-    finally { this.adding = false; }
+    finally { this.torrentImport?.release(downloaded); this.adding = false; this.receiveMagnet(); }
   }
   list(): void {
     try {
@@ -279,6 +344,8 @@ struct Index {
   async removeTask(deleteData: boolean): Promise<void> {
     const id = this.removeTaskId;
     if (!id) return;
+    // Invalidate in-flight detail reads before the native handle is removed.
+    if (this.selectedTask === id) { this.selectedTask = ''; this.showPeers = false; }
     try {
       await call({ op: 'remove', id: id, deleteData: deleteData });
       if (this.selectedTask === id) this.selectedTask = '';
@@ -334,17 +401,17 @@ struct Index {
           if (this.tab !== 0) { IconButton({ icon: $r('app.media.nav_back'), label: this.tab === 1 ? '返回上一级' : '返回任务', action: () => { if (this.tab === 1) this.backFiles(); else this.tab = 0; } }) }
           Text(this.tab === 0 ? 'BTmobie' : this.tab === 1 ? (this.current.split('/').pop() || '文件管理') : '设置').fontSize(this.tab === 0 ? 32 : 18).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           if (this.tab === 1) {
-            Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
-          } else { Text(APP_VERSION).fontSize(12).fontColor('#8E8E93') }
+            Button('⋯', { type: ButtonType.Circle }).width(48).height(48).fontSize(28).fontColor($r('app.color.text_primary')).backgroundColor($r('app.color.card_background')).accessibilityText('文件操作').bindMenu([{ value: '导入文件', action: () => { this.importFile(); } }, { value: '刷新文件列表', action: () => { this.list(); } }])
+          } else { Text(APP_VERSION).fontSize(12).fontColor($r('app.color.text_secondary')) }
         }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 12 })
-        if (this.status) { Text(this.status).fontColor('#BB4B18').fontSize(13).padding(10) }
+        if (!this.ready && this.status) { Text(this.status).fontColor($r('app.color.warning')).fontSize(13).padding(10) }
         if (this.extracting && !this.archivePath) { Text('压缩处理中 ' + Math.max(0,this.percent).toString() + '%').fontSize(14).padding(8) }
         if (this.tab === 0) {
-          Search({ value: this.keyword, placeholder: '搜索任务名称或 Hash' }).textFont({ size: 15 }).height(44).backgroundColor('#EFEFF0').borderRadius(24).margin({ left: 18, right: 18, bottom: 12 }).onChange((v: string) => { this.keyword = v; })
+          Search({ value: this.keyword, placeholder: '搜索任务名称或 Hash' }).textFont({ size: 15 }).height(44).backgroundColor($r('app.color.input_background')).borderRadius(24).margin({ left: 18, right: 18, bottom: 12 }).onChange((v: string) => { this.keyword = v; })
           Scroll() {
             Row({ space: 8 }) {
               ForEach(this.filters, (label: string, index: number) => {
-                Button(label).fontSize(13).fontWeight(FontWeight.Medium).height(32).padding({ left: 13, right: 13 }).fontColor(this.taskFilter === index ? Color.White : '#202022').backgroundColor(this.taskFilter === index ? '#F39A56' : Color.Transparent).onClick(() => { this.taskFilter = index; })
+                Button(label).fontSize(13).fontWeight(FontWeight.Medium).height(32).padding({ left: 13, right: 13 }).fontColor(this.taskFilter === index ? Color.White : $r('app.color.text_primary')).backgroundColor(this.taskFilter === index ? '#F39A56' : Color.Transparent).onClick(() => { this.taskFilter = index; })
               })
             }.padding({ left: 18, right: 18 })
           }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%').margin({ bottom: 12 })
@@ -352,7 +419,7 @@ struct Index {
             Column({ space: 12 }) {
               Image($r('app.media.welcome')).width(64).height(64).margin({ bottom: 8 })
               Text(this.tasks.length === 0 ? '欢迎使用 BTmobie' : '没有匹配的任务').fontSize(22).fontWeight(FontWeight.Bold)
-              Text(this.tasks.length === 0 ? '点击左下角的“＋”添加磁力链接，也可以从文件管理打开 Torrent 文件。' : '试试其他关键词，或选择“全部”查看任务。').fontSize(14).fontColor('#8E8E93').textAlign(TextAlign.Center).lineHeight(21).padding({ left: 26, right: 26 })
+              Text(this.tasks.length === 0 ? '点击左下角的“＋”，从磁力链接、Torrent 下载地址或文件添加任务。' : '试试其他关键词，或选择“全部”查看任务。').fontSize(14).fontColor($r('app.color.text_secondary')).textAlign(TextAlign.Center).lineHeight(21).padding({ left: 26, right: 26 })
             }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
           } else {
           List({ space: 12 }) {
@@ -365,7 +432,7 @@ struct Index {
           }.layoutWeight(1).padding({ left: 16, right: 16 })
           }
         } else if (this.tab === 1) {
-          Text('当前下载目录：BTmobie').fontSize(13).fontColor('#8E8E93').padding({ top: 14, bottom: 20 })
+          Text('当前下载目录：BTmobie').fontSize(13).fontColor($r('app.color.text_secondary')).padding({ top: 14, bottom: 20 })
           List({ space: 0 }) {
             ForEach(this.entries, (item: FileItem) => {
               ListItem() {
@@ -373,14 +440,14 @@ struct Index {
                   Image(this.icon(item)).width(25).height(29).objectFit(ImageFit.Contain).onClick(() => { this.open(item); })
                   Column({ space: 5 }) {
                     Text(item.name).fontSize(15).width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-                    Text(this.fileSummary(item)).fontSize(11).fontColor('#AAAAAF').width('100%')
+                    Text(this.fileSummary(item)).fontSize(11).fontColor($r('app.color.text_tertiary')).width('100%')
                   }.layoutWeight(1).onClick(() => { this.open(item); })
-                  Text(item.directory ? '›' : bytes(item.size)).fontSize(12).fontColor('#8E8E93').constraintSize({ maxWidth: 62 }).textAlign(TextAlign.End)
-                }.padding({ left: 18, right: 18, top: 18, bottom: 18 }).width('100%').backgroundColor(Color.White)
+                  Text(item.directory ? '›' : bytes(item.size)).fontSize(12).fontColor($r('app.color.text_secondary')).constraintSize({ maxWidth: 62 }).textAlign(TextAlign.End)
+                }.padding({ left: 18, right: 18, top: 18, bottom: 18 }).width('100%').backgroundColor($r('app.color.card_background'))
                 .gesture(LongPressGesture().onAction(() => { this.actionPath = item.path; this.newName = item.name; }))
               }.swipeAction({ end: this.swipeFile.bind(this, item.path, item.name) })
             }, (item: FileItem) => item.path + ':' + item.size.toString() + ':' + (item.modified ?? 0).toString())
-          }.layoutWeight(1).backgroundColor(Color.White).borderRadius(24).clip(true).divider({ strokeWidth: 0.5, color: '#E5E5EA', startMargin: 18, endMargin: 18 }).margin({ left: 16, right: 16 })
+          }.layoutWeight(1).backgroundColor($r('app.color.card_background')).borderRadius(24).clip(true).divider({ strokeWidth: 0.5, color: $r('app.color.separator'), startMargin: 18, endMargin: 18 }).margin({ left: 16, right: 16 })
         } else {
           Scroll() {
             Column({ space: 16 }) {
@@ -391,38 +458,38 @@ struct Index {
                 Text('DHT 节点 ' + this.networkDht).fontSize(12).minFontSize(9).maxFontSize(12).maxLines(1).layoutWeight(1).textAlign(TextAlign.Center)
                 Text('Tracker 响应 ' + this.networkTrackers).fontSize(12).minFontSize(9).maxFontSize(12).maxLines(1).layoutWeight(1).textAlign(TextAlign.End)
               }.width('100%')
-              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor($r('app.color.card_background')).borderRadius(20)
               Column({ space: 12 }) {
               Text('后台传输').fontSize(16).fontWeight(FontWeight.Medium)
               Row() { Text('允许后台下载 / 做种').fontSize(15).layoutWeight(1); Toggle({ type: ToggleType.Switch, isOn: this.allowBackground }).selectedColor('#34C759').onChange((value: boolean) => { this.setAllowBackground(value); }) }
-              Text(this.backgroundMessage).fontSize(13).fontColor('#666666')
-              Text('开启后，活动传输通过系统实况通知在后台／锁屏继续；无任务时自动停止。系统限制或长时间无传输可能挂起，以此处实际状态为准。').fontSize(13).fontColor('#666666')
-              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+              Text(this.backgroundMessage).fontSize(13).fontColor($r('app.color.text_secondary'))
+              Text('开启后，活动传输通过系统实况通知在后台／锁屏继续；无任务时自动停止。系统限制或长时间无传输可能挂起，以此处实际状态为准。').fontSize(13).fontColor($r('app.color.text_secondary'))
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor($r('app.color.card_background')).borderRadius(20)
               SettingsPanel({ trackerRevision: this.subscriptionState.trackerRevision, runtimeMessage: this.subscriptionState.runtimeMessage,
                 notificationPermission: this.notificationsEnabled, onAuthorizeNotifications: async () => this.enableNotifications(),
                 onSync: async () => { await this.subscriptions.synchronize(true); return this.subscriptionState.runtimeMessage; }, onSaved: () => { this.refresh(); } })
               Column({ space: 12 }) {
               Text('订阅信息').fontSize(16).fontWeight(FontWeight.Medium)
-              Row() { Text('当前版本').fontSize(15).layoutWeight(1); Text('V' + APP_VERSION).fontSize(15).fontColor('#EE9A64') }.width('100%')
-              Divider().color('#E5E5EA')
-              Row() { Text('订阅到期时间').fontSize(15).layoutWeight(1); Text(subscriptionDate(this.subscriptionState.expiresAt)).fontSize(13).fontColor('#EE9A64') }.width('100%')
-              Divider().color('#E5E5EA')
-              Row() { Text('订阅与设备身份').fontSize(15).layoutWeight(1); Text(this.subscriptionState.status + ' ›').fontSize(14).fontColor('#EE9A64') }.width('100%').height(40).onClick(() => { this.showSubscription = true; this.subscriptions.synchronize(); })
-              Text('UUID：' + (this.subscriptionState.deviceID || this.subscriptionState.identityMessage)).fontSize(12).fontColor('#8E8E93').copyOption(CopyOptions.InApp)
-              Text(this.subscriptionState.unlimited ? '无限添加下载任务' : '今日免费剩余 ' + this.subscriptionState.freeRemaining.toString() + ' / 3 次').fontSize(12).fontColor('#8E8E93')
-              Text('订阅 8 元 / 30 天，以最近一次有效同步的服务端策略为准。').fontSize(12).fontColor('#8E8E93')
-              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor(Color.White).borderRadius(20)
+              Row() { Text('当前版本').fontSize(15).layoutWeight(1); Text('V' + APP_VERSION).fontSize(15).fontColor($r('app.color.accent')) }.width('100%')
+              Divider().color($r('app.color.separator'))
+              Row() { Text('订阅到期时间').fontSize(15).layoutWeight(1); Text(subscriptionDate(this.subscriptionState.expiresAt)).fontSize(13).fontColor($r('app.color.accent')) }.width('100%')
+              Divider().color($r('app.color.separator'))
+              Row() { Text('订阅与设备身份').fontSize(15).layoutWeight(1); Text(this.subscriptionState.status + ' ›').fontSize(14).fontColor($r('app.color.accent')) }.width('100%').height(40).onClick(() => { this.showSubscription = true; this.subscriptions.synchronize(); })
+              Text('UUID：' + (this.subscriptionState.deviceID || this.subscriptionState.identityMessage)).fontSize(12).fontColor($r('app.color.text_secondary')).copyOption(CopyOptions.InApp)
+              Text(this.subscriptionState.unlimited ? '无限添加下载任务' : '今日免费剩余 ' + this.subscriptionState.freeRemaining.toString() + ' / 3 次').fontSize(12).fontColor($r('app.color.text_secondary'))
+              Text('订阅 8 元 / 30 天，以最近一次有效同步的服务端策略为准。').fontSize(12).fontColor($r('app.color.text_secondary'))
+              }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor($r('app.color.card_background')).borderRadius(20)
             }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
           }.layoutWeight(1)
         }
         Row() {
-          IconButton({ icon: $r('app.media.nav_add'), label: '添加磁力任务', selected: this.tab === 0, action: () => { this.tab = 0; this.showAdd = true; } })
+          IconButton({ icon: $r('app.media.nav_add'), label: '添加下载任务', selected: this.tab === 0, action: () => { if (!this.adding) { this.tab = 0; this.showAddMenu = !this.showAddMenu; } } })
           Blank()
           IconButton({ icon: $r('app.media.nav_folder'), label: '文件管理', selected: this.tab === 1, action: () => { this.tab = this.tab === 1 ? 0 : 1; this.list(); } })
           Blank()
           IconButton({ icon: $r('app.media.nav_gear'), label: '设置', selected: this.tab === 2, action: () => { this.tab = this.tab === 2 ? 0 : 2; } })
         }.padding({ left: 24, right: 24, top: 14, bottom: 16 }).width('100%')
-      }.height('100%').width('100%').backgroundColor(this.tab === 0 ? '#FFFFFF' : '#F2F2F7')
+      }.height('100%').width('100%').backgroundColor(this.tab === 0 ? $r('app.color.task_background') : $r('app.color.page_background'))
       if (this.selectedTask) {
         ForEach(this.tasks.filter((task: TaskState) => task.id === this.selectedTask), (task: TaskState) => {
           TaskDetails({ task: task, files: this.taskFiles, peers: this.peerRows, trackers: this.trackerRows, peersOpen: this.showPeers,
@@ -433,17 +500,37 @@ struct Index {
             onRemove: () => { this.removeTaskId = task.id; }, onPlay: (file: TorrentFile) => { this.playTask(file); } })
         }, (task: TaskState) => task.id)
       }
+      if (this.showAddMenu) {
+        Column().width('100%').height('100%').backgroundColor('#22000000').onClick(() => { this.showAddMenu = false; })
+        Column() {
+          Blank()
+          Row() {
+            Column({ space: 4 }) {
+              Text('从……添加').fontSize(13).fontColor($r('app.color.text_secondary')).width('100%').padding({ left: 16, top: 14, bottom: 6 })
+              Button('URL · 种子下载地址').fontColor($r('app.color.text_primary')).backgroundColor(Color.Transparent).height(48).width('100%').onClick(() => { this.beginAdd('url'); })
+              Button('磁力链接').fontColor($r('app.color.text_primary')).backgroundColor(Color.Transparent).height(48).width('100%').onClick(() => { this.beginAdd('magnet'); })
+              Button('文件 · 选择 Torrent').fontColor($r('app.color.text_primary')).backgroundColor(Color.Transparent).height(48).width('100%').onClick(() => { this.beginAdd('file'); })
+            }.width(250).padding(8).borderRadius(26).backgroundColor($r('app.color.card_background')).shadow({ radius: 20, color: '#22000000' })
+            Blank()
+          }.width('100%').padding({ left: 20, bottom: 86 })
+        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      }
       if (this.showAdd) {
-        Column().width('100%').height('100%').backgroundColor('#55000000').onClick(() => { if (!this.adding) this.showAdd = false; })
+        Column().width('100%').height('100%').backgroundColor('#55000000').onClick(() => { this.cancelAdd(); })
         Column({ space: 16 }) {
           Text('确认添加下载任务').fontSize(20).fontWeight(FontWeight.Bold)
-          Text('检查磁力链接后点击添加，下载将保存到文件管理。').fontSize(13).fontColor('#8E8E93')
-          TextArea({ text: this.magnet, placeholder: '粘贴 magnet: 磁力链接' }).fontSize(13).height(136).onChange((v: string) => { this.magnet = v; })
+          Text(this.addMode === 'url' ? '输入 HTTP(S) 种子文件直链；不是普通网页地址。最多 16 MiB。' : this.addMode === 'file' ? '检查所选 Torrent 文件后确认添加，原文件不会被移动或删除。' : '检查磁力链接后点击添加，下载将保存到文件管理。').fontSize(13).fontColor($r('app.color.text_secondary'))
+          if (this.addMode === 'file') {
+            Text(this.torrentName).fontSize(15).maxLines(4).width('100%').padding(16)
+          } else {
+            TextArea({ text: this.magnet, placeholder: this.addMode === 'url' ? 'https://example.com/file.torrent' : '粘贴 magnet: 磁力链接' }).fontSize(13).height(136).enabled(!this.adding).onChange((v: string) => { this.magnet = v; })
+          }
+          if (this.addMode === 'magnet') { Text('兼容环境内的浏览器若无法唤醒，可复制磁力链接，在此粘贴确认添加。').fontSize(12).fontColor($r('app.color.text_secondary')) }
           Row({ space: 14 }) {
-            Button('取消').fontColor('#202022').backgroundColor('#EFEFF0').layoutWeight(1).enabled(!this.adding).onClick(() => { this.showAdd = false; this.magnet = ''; })
+            Button('取消').fontColor($r('app.color.text_primary')).backgroundColor($r('app.color.input_background')).layoutWeight(1).enabled(!this.adding).onClick(() => { this.cancelAdd(); })
             Button(this.adding ? '正在添加…' : '添加任务').backgroundColor('#F39A56').layoutWeight(1).enabled(this.ready && !this.adding).onClick(() => { this.add(); })
           }
-        }.width('90%').padding(24).borderRadius(26).backgroundColor(Color.White)
+        }.width('90%').padding(24).borderRadius(26).backgroundColor($r('app.color.card_background'))
       }
       if (this.textPath) {
         Column() {
@@ -457,14 +544,14 @@ struct Index {
             Scroll() {
               Text() {
                 ForEach(this.parts, (part: TextPart) => {
-                  Span(part.value).fontColor(part.link ? '#007AFF' : '#202020').decoration({ type: part.link ? TextDecorationType.Underline : TextDecorationType.None }).onClick(() => {
+                  Span(part.value).fontColor(part.link ? $r('app.color.link') : $r('app.color.text_primary')).decoration({ type: part.link ? TextDecorationType.Underline : TextDecorationType.None }).onClick(() => {
                     if (part.link) (getContext(this) as common.UIAbilityContext).startAbility({ action: 'ohos.want.action.viewData', uri: part.value }).catch((e: Error) => { this.fail(e); });
                   })
                 })
               }.fontSize(14).lineHeight(22).width('100%').padding(16)
             }.layoutWeight(1).width('100%')
           }
-        }.width('100%').height('100%').backgroundColor(Color.White)
+        }.width('100%').height('100%').backgroundColor($r('app.color.card_background'))
       }
       if (this.archivePath) {
         Column().width('100%').height('100%').backgroundColor('#55000000')
@@ -473,11 +560,11 @@ struct Index {
           Text('解压压缩包').fontSize(20).fontWeight(FontWeight.Bold)
           Text('如已加密，请输入密码；未加密可留空。').fontSize(14)
           TextInput({ placeholder: '解压密码（可选）', text: this.password }).type(InputType.Password).enabled(!this.extracting).onChange((v: string) => { this.password = v; })
-          if (this.archiveError) { Text(this.archiveError).fontColor('#B54020').fontSize(14).width('100%'); Text('失败后可修改密码重试；已写出的部分文件会保留在对应解压目录。').fontSize(12) }
+          if (this.archiveError) { Text(this.archiveError).fontColor($r('app.color.warning')).fontSize(14).width('100%'); Text('失败后可修改密码重试；已写出的部分文件会保留在对应解压目录。').fontSize(12) }
           if (this.extracting) { Progress({ value: Math.max(0,this.percent), total: 100 }); Text('解压中 ' + Math.max(0,this.percent).toString() + '%') }
           Row({ space: 16 }) { Button('取消').onClick(() => { if(this.extracting) call({ op: 'cancelArchive' }); else this.archivePath = ''; }); Button('解压').enabled(!this.extracting).onClick(() => { this.extract(); }) }
         }.padding(24).width('100%')
-        }.width('90%').constraintSize({ maxHeight: '80%' }).backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
+        }.width('90%').constraintSize({ maxHeight: '80%' }).backgroundColor($r('app.color.card_background')).borderRadius(24).shadow({ radius: 30, color: '#666666' })
       }
       if (this.actionPath) {
         Column({ space: 16 }) {
@@ -497,10 +584,10 @@ struct Index {
             try { await call({ op: 'compress', path: input, output: input + '-' + Date.now().toString() + '.zip' }); this.list(); promptAction.showToast({ message: '压缩完成' }); }
             catch(e) { this.fail(e as Error); } finally { this.extracting = false; }
           })
-          Text('正在下载或做种的文件请勿重命名，以免任务找不到文件。').fontSize(12).fontColor('#BB4B18')
+          Text('正在下载或做种的文件请勿重命名，以免任务找不到文件。').fontSize(12).fontColor($r('app.color.warning'))
           Button('删除文件 / 文件夹').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteFile(); })
           Button('取消').onClick(() => { this.actionPath = ''; })
-        }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24)
+        }.padding(24).width('90%').backgroundColor($r('app.color.card_background')).borderRadius(24)
       }
       if (this.imagePath) {
         ImageViewer({ source: this.imagePath, onClose: () => { this.imagePath = ''; } })
@@ -518,7 +605,7 @@ struct Index {
           Button('仅移除任务，保留文件').onClick(() => { this.removeTask(false); })
           Button('移除任务并删除下载数据').backgroundColor('#D83B35').onClick(() => { this.confirmDeleteTask(); })
           Button('取消').onClick(() => { this.removeTaskId = ''; })
-        }.padding(24).width('90%').backgroundColor(Color.White).borderRadius(24).shadow({ radius: 30, color: '#666666' })
+        }.padding(24).width('90%').backgroundColor($r('app.color.card_background')).borderRadius(24).shadow({ radius: 30, color: '#666666' })
       }
     }.width('100%').height('100%')
   }

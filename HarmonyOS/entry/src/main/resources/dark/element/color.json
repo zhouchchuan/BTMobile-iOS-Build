@@ -2,55 +2,55 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#F5F5F7"
+      "value": "#000000"
     },
     {
       "name": "page_background",
-      "value": "#F2F2F7"
+      "value": "#000000"
     },
     {
       "name": "task_background",
-      "value": "#FFFFFF"
+      "value": "#000000"
     },
     {
       "name": "card_background",
-      "value": "#FFFFFF"
+      "value": "#1C1C1E"
     },
     {
       "name": "input_background",
-      "value": "#EFEFF0"
+      "value": "#2C2C2E"
     },
     {
       "name": "text_primary",
-      "value": "#202022"
+      "value": "#F2F2F7"
     },
     {
       "name": "text_secondary",
-      "value": "#727278"
+      "value": "#B8B8BE"
     },
     {
       "name": "text_tertiary",
-      "value": "#8E8E93"
+      "value": "#98989F"
     },
     {
       "name": "separator",
-      "value": "#E5E5EA"
+      "value": "#38383A"
     },
     {
       "name": "accent",
-      "value": "#D47831"
+      "value": "#FFB174"
     },
     {
       "name": "accent_soft",
-      "value": "#FFF0E5"
+      "value": "#3C2A20"
     },
     {
       "name": "warning",
-      "value": "#995522"
+      "value": "#FFB174"
     },
     {
       "name": "link",
-      "value": "#007AFF"
+      "value": "#64ACFF"
     }
   ]
 }

@@ -75,7 +75,7 @@ function harness(legacy = false, transport) {
       value={aud,kind:'client-config',nonce:u.searchParams.get('nonce'),issuedAt:now,trackersRevision:3,trackers:['https://tracker.example.test/announce'],heartbeatInterval:60,onlineWindow:180};
     }else if(u.pathname==='/v1/activity'){
       const h=options.header, payload=JSON.parse(body);
-      assert.equal(h['X-Device-ID'],registeredID);assert.equal(payload.platform,'harmonyos');assert.equal(payload.version,'1.0.4');
+      assert.equal(h['X-Device-ID'],registeredID);assert.equal(payload.platform,'harmonyos');assert.equal(payload.version,'1.0.5');
       assert.deepEqual(Object.keys(payload).sort(),['platform','version','foreground','downloading','seeding','metadata','checking','downloadRate','uploadRate'].sort());
       const message='POST\n/v1/activity\n'+h['X-Time']+'\n'+h['X-Nonce']+'\n'+crypto.createHash('sha256').update(body).digest('hex');
       assert(crypto.verify('sha256',Buffer.from(message),registeredKey,Buffer.from(h['X-Signature'],'base64')));

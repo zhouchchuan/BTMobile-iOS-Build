@@ -23,7 +23,7 @@ const {harness}=require('./subscription-startup-test.cjs');
   assert(client.state.runtimeMessage.includes('在线状态已同步'),client.state.runtimeMessage);
   const id=client.state.deviceID;
   let device=app.db.prepare('SELECT * FROM devices WHERE id=?').get(id);
-  assert.equal(device.client_platform,'harmonyos');assert.equal(device.client_version,'1.0.4');
+  assert.equal(device.client_platform,'harmonyos');assert.equal(device.client_version,'1.0.5');
   assert(presence(device,Math.floor(Date.now()/1000)).online,'management screen sees real heartbeat');
   await client.loadOrders();assert.equal(client.state.orderRows.length,0,'signed empty-body GET succeeds');
   app.db.prepare("UPDATE settings SET value='false' WHERE key='subscriptionEnabled'").run();
@@ -32,6 +32,6 @@ const {harness}=require('./subscription-startup-test.cjs');
   device=app.db.prepare('SELECT * FROM devices WHERE id=?').get(id);assert.equal(device.client_foreground,0);
   assert.equal(app.db.prepare('SELECT count(*) AS n FROM orders').get().n,0,'no payment/order side effects');
   client.stop();
-  console.log('PASS actual subscription server 1.2.4: registration -> verified entitlement -> signed harmonyos/1.0.4 heartbeat -> admin presence; signed empty GET orders; disabled restriction unlimited; no orders created.');
+  console.log('PASS actual subscription server 1.2.4: registration -> verified entitlement -> signed harmonyos/1.0.5 heartbeat -> admin presence; signed empty GET orders; disabled restriction unlimited; no orders created.');
  }finally{server.closeAllConnections();await new Promise(r=>server.close(r));app.db.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

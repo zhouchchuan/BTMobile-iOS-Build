@@ -11,18 +11,18 @@ export struct SubscriptionCheckout {
   build() {
     Column({ space: 8 }) {
       Row({ space: 10 }) {
-        Button('‹').width(44).height(44).fontSize(28).fontColor('#202022').backgroundColor(Color.White).accessibilityText('返回支付上一页').onClick(() => {
+        Button('‹').width(44).height(44).fontSize(28).fontColor($r('app.color.text_primary')).backgroundColor($r('app.color.card_background')).accessibilityText('返回支付上一页').onClick(() => {
           try { if (this.controller.accessBackward()) this.controller.backward(); else this.onClose(); } catch (_) { this.onClose(); }
         })
         Column({ space: 3 }) {
           Text('订阅支付').fontSize(17).fontWeight(FontWeight.Medium)
-          Text(this.origin).fontSize(10).fontColor('#8E8E93').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.origin).fontSize(10).fontColor($r('app.color.text_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.layoutWeight(1)
-        Button('完成').height(44).fontSize(14).fontColor('#EE9A64').backgroundColor(Color.White).onClick(() => { this.onClose(); })
-        Button('×').width(44).height(44).fontSize(26).fontColor('#202022').backgroundColor(Color.White).accessibilityText('关闭支付页面').onClick(() => { this.onClose(); })
+        Button('完成').height(44).fontSize(14).fontColor($r('app.color.accent')).backgroundColor($r('app.color.card_background')).onClick(() => { this.onClose(); })
+        Button('×').width(44).height(44).fontSize(26).fontColor($r('app.color.text_primary')).backgroundColor($r('app.color.card_background')).accessibilityText('关闭支付页面').onClick(() => { this.onClose(); })
       }.padding({ left: 12, right: 12, top: 12 }).width('100%')
-      Text('付款后点击“完成”刷新订阅；页面提示不代表已开通，以服务器确认结果为准。').fontSize(12).fontColor('#8E8E93').padding({ left: 16, right: 16 })
-      if (this.message) { Text(this.message).fontSize(13).fontColor('#995522').padding(12) }
+      Text('付款后点击“完成”刷新订阅；页面提示不代表已开通，以服务器确认结果为准。').fontSize(12).fontColor($r('app.color.text_secondary')).padding({ left: 16, right: 16 })
+      if (this.message) { Text(this.message).fontSize(13).fontColor($r('app.color.warning')).padding(12) }
       Web({ src: this.url, controller: this.controller })
         .javaScriptAccess(true).domStorageAccess(true).fileAccess(false).mixedMode(MixedMode.None)
         .onLoadIntercept((event) => {
@@ -34,7 +34,7 @@ export struct SubscriptionCheckout {
         .onPageBegin((event) => { this.origin = (event?.url ?? '').split('/').slice(0, 3).join('/'); })
         .onErrorReceive(() => { this.message = '支付页面加载失败，请返回订阅页后重试。未自动重新创建订单。'; })
         .width('100%').layoutWeight(1)
-    }.width('100%').height('100%').backgroundColor('#F2F2F7')
+    }.width('100%').height('100%').backgroundColor($r('app.color.page_background'))
   }
 }
 

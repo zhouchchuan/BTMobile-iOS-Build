@@ -1,0 +1,37 @@
+BTmobie HarmonyOS V1.0.5 / versionCode 10005
+Created 2026-10-11 from the frozen V1.0.3 baseline, with verified V1.0.4 changes overlaid.
+V1.0.4 source commit: 372c89314f9f4a9c75e4a9bb38c691954b29fdfc.
+Stable registry remains V1.0.3 until explicit new baseline acceptance.
+
+User feedback, not a new automated device measurement:
+V1.0.4 background download/seeding and screen-locked transfers passed an overnight test.
+The connected-device list remained empty during V1.0.5 preparation, so no new phone logs were available.
+
+Changes:
+- Plus menu: magnet, HTTP(S) Torrent URL, system document picker. Confirm before task creation.
+- All sources use existing subscription admission, native metadata validation, duplicate detection and refunds.
+- Imported metadata bounded to 16 MiB; only instance-owned temporary copies are cleaned up.
+- Back icon now uses a closed chevron shape, avoiding the tinted open-SVG fill triangle.
+- Invalidate detail reads before task deletion. Ignore late results/errors of closed/deleted details.
+- Runtime notices use short toasts, never the persistent startup banner above search.
+- Light/dark/system application color modes, persisted in existing preferences; themed cards and TXT reader.
+- Version and actual BT identity updated to Htorrent/1.0.5 and -HT1050-.
+
+Explicitly unchanged:
+BT settings/defaults, subscription server/rules/keys/ledger, background transfer service,
+player/image playback behavior, archive engine and file-management operations.
+No iOS, Android or server changes; no uninstall or data clearing.
+
+Compatibility boundary:
+User confirmed Chrome runs inside Zhuoyitong/Chujingyi Android compatibility environment.
+Native magnet registration and confirmation remain intact. A container that does not forward
+Android external intents cannot be repaired by changing the native app alone. Copy/paste fallback
+is explained in the magnet sheet. Cross-container wakeup is not claimed fixed or device-verified.
+
+Local regression passed: imports, cleanup, theme persistence/rollback, stale deletion race,
+subscription/quota/startup/server contract, background lifetime, playback controls, notifications,
+settings and ArkTS model declarations. Full HAP/native CI pending at time of this source note.
+
+Fresh user authorization permits temporary public GitHub build for this version only.
+Restore Private after artifact retrieval and SHA256 verification.
+Source/uploads exclude signing keys, secrets, phone logs and user media.

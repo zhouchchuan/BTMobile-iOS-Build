@@ -3,6 +3,7 @@ import window from '@ohos.window';
 import Want from '@ohos.app.ability.Want';
 import { incomingMagnet } from '../model/IncomingLink';
 import { backgroundTransfer } from '../model/BackgroundTransfer';
+import { themeService } from '../model/ThemeService';
 
 export default class EntryAbility extends UIAbility {
   private acceptWant(want: Want): void {
@@ -20,6 +21,9 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void { backgroundTransfer.setForeground(false); AppStorage.setOrCreate('btmobileForeground', false); }
   onDestroy(): void { backgroundTransfer.detach(); }
   onWindowStageCreate(stage: window.WindowStage): void {
-    stage.loadContent('pages/Index');
+    stage.loadContent('pages/Index', (error) => {
+      // Color mode requires a loaded window; never block BT startup on preferences.
+      if (!error.code) themeService.initialize(this.context);
+    });
   }
 }
