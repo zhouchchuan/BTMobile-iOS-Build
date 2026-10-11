@@ -6,9 +6,10 @@ const assert = require('node:assert/strict');
 const ts = require(process.argv[2]);
 const sdkLoader = path.resolve(path.dirname(process.argv[2]), '../../..');
 const options = JSON.parse(fs.readFileSync(path.join(sdkLoader,'tsconfig.json'),'utf8')).compilerOptions;
-options.ets.components.push('TaskCard', 'SettingsPanel', 'SettingNumber', 'SettingSwitch', 'Player', 'ImageViewer', 'IconButton', 'TaskDetails', 'SubscriptionPanel', 'ThemeSettings');
+options.ets.components.push('TaskCard', 'SettingsPanel', 'SettingNumber', 'SettingSwitch', 'Player', 'ImageViewer', 'IconButton', 'TaskDetails', 'SubscriptionPanel', 'ThemeSettings', 'AboutPanel');
 const root = path.join(__dirname, '..', 'entry', 'src', 'main', 'ets');
 const files = ['model/Native.ets', 'model/IncomingLink.ets', 'model/TaskFilter.ets', 'model/CompletionNotifications.ets', 'components/TaskCard.ets', 'components/SettingsPanel.ets', 'components/IconButton.ets', 'components/TaskDetails.ets', 'pages/Index.ets', 'entryability/EntryAbility.ets', 'components/ThemeSettings.ets'];
+files.push('components/AboutPanel.ets', 'model/AboutContent.ets', 'model/PeerDisplay.ets');
 for (const relative of files) {
   const text = fs.readFileSync(path.join(root,relative),'utf8');
   const parsed = ts.createSourceFile(relative,text,ts.ScriptTarget.Latest,true,ts.ScriptKind.ETS,options);

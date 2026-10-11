@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),ts=require(process.argv[2]);
 const sdk=path.resolve(path.dirname(process.argv[2]),'../../../../../api');
 const root=path.resolve(__dirname,'../entry/src/main/ets/model');
-const names=['SubscriptionPolicy','SubscriptionVault','SubscriptionService','BackgroundTransfer','ThemeService','TorrentImport'];
+const names=['SubscriptionPolicy','SubscriptionVault','SubscriptionService','BackgroundTransfer','ThemeService','TorrentImport','PeerDisplay','AboutContent'];
 const options={strict:false,skipLibCheck:true,noEmit:true,allowNonTsExtensions:true,experimentalDecorators:true,target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.ESNext,moduleResolution:ts.ModuleResolutionKind.NodeJs};
 const host=ts.createCompilerHost(options),original=host.getSourceFile.bind(host);
 host.getSourceFile=(file,language,onError)=>file.endsWith('.ets')?ts.createSourceFile(file,fs.readFileSync(file,'utf8'),language,true,ts.ScriptKind.TS):original(file,language,onError);

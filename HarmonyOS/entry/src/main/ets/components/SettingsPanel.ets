@@ -140,8 +140,8 @@ export struct SettingsPanel {
         Column({ space: 14 }) {
         Text('Tracker').fontSize(16).fontWeight(FontWeight.Medium)
         SettingSwitch({ title: '新任务自动添加 Tracker', value: $autoTrackers })
-        Text('服务端默认地址 · 配置 ' + this.trackerRevision.toString()).fontSize(15).fontWeight(FontWeight.Medium)
-        Text(this.defaults).fontSize(12).width('100%').copyOption(CopyOptions.InApp)
+        Text('默认 Tracker · 配置 ' + this.trackerRevision.toString()).fontSize(15).fontWeight(FontWeight.Medium)
+        Text('默认地址已隐藏，仍按当前设置参与连接与同步。').fontSize(12).fontColor($r('app.color.text_secondary'))
         Text(this.runtimeMessage).fontSize(12).fontColor($r('app.color.text_secondary'))
         Text('服务端统一管理默认地址，联网约每分钟同步；断网保留缓存，自定义地址不被覆盖。不重启核心，不改变已有任务的 Tracker。').fontSize(12).fontColor($r('app.color.text_secondary'))
         Text('自定义地址（每行一个）').fontSize(15).fontWeight(FontWeight.Medium)

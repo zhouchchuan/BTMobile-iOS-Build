@@ -1,5 +1,6 @@
 import { TaskState, TorrentFile, PeerInfo, bytes } from '../model/Native';
 import { IconButton } from './IconButton';
+import { maskPeerEndpoint } from '../model/PeerDisplay';
 
 @Component
 export struct TaskDetails {
@@ -75,7 +76,7 @@ export struct TaskDetails {
             if (this.peersOpen) {
               if (this.peers.length === 0) { Text('暂无活动连接').fontSize(13).fontColor($r('app.color.text_secondary')).padding(16) }
               ForEach(this.peers, (peer: PeerInfo) => {
-                Text(peer.address + ' · ' + peer.client + '\n↓ ' + bytes(peer.download) + '/s  ↑ ' + bytes(peer.upload) + '/s  ' + (peer.progress * 100).toFixed(1) + '%')
+                Text(maskPeerEndpoint(peer.address) + ' · ' + peer.client + '\n↓ ' + bytes(peer.download) + '/s  ↑ ' + bytes(peer.upload) + '/s  ' + (peer.progress * 100).toFixed(1) + '%')
                   .fontSize(11).width('100%').padding({ left: 16, right: 16, bottom: 10 })
               }, (peer: PeerInfo) => peer.address + ':' + peer.download.toString() + ':' + peer.upload.toString() + ':' + peer.progress.toString())
             }

@@ -1,7 +1,7 @@
 // Compatible with the existing iOS / Android subscription service. No store prices are invented here.
 export const SUBSCRIPTION_ORIGIN: string = 'https://sub.linkyou.win:5288';
 export const SUBSCRIPTION_AUDIENCE: string = 'com.mxmall123.app';
-export const APP_VERSION: string = '1.0.5';
+export const APP_VERSION: string = '1.0.6';
 export const DAILY_FREE: number = 3;
 export const SERVER_PUBLIC_KEY: string = 'BFuxu2aaqgEyrjxGOADET1X69miait64KLxm4JYS2oTrRL/MH4iad2NTleo01HrMJCPt1sQHzVSGoaEnG8G+T2E=';
 export interface SignedEnvelope { payload: string; signature: string }

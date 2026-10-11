@@ -1,0 +1,14 @@
+BTmobie HarmonyOS V1.0.6 / versionCode 10006
+Created from frozen V1.0.3 source, then overlaid verified archived V1.0.5 fixes.
+All 117 input source files matched the V1.0.5 release archive before editing.
+
+Scope: default Tracker addresses hidden in Settings only; custom addresses and default sync preserved.
+Peer endpoint labels hide first three IPv4 octets / expanded IPv6 groups; embedded IPv4 also masked.
+Raw endpoint keys and native transport are unchanged. This is UI masking, not protocol anonymity.
+Yellow About BTmobie entry under subscription opens an internal, themed page and bundled licenses.
+No new permissions, subscription logic, background transfer, playback or archive engine changes.
+Version and wire identity: Htorrent/1.0.6 and -HT1060-.
+
+Build/test status is recorded separately with release evidence after compilation.
+No device validation claimed here. Stable baseline registry remains V1.0.3 until user acceptance.
+Temporary public GitHub build explicitly approved for this V1.0.6 only; restore Private after retrieval.

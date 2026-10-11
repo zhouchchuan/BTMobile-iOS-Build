@@ -19,6 +19,7 @@ import { SubscriptionPanel, subscriptionDate } from '../components/SubscriptionP
 import { APP_VERSION } from '../model/SubscriptionPolicy';
 import { incomingMagnet as normalizeMagnet } from '../model/IncomingLink';
 import { TorrentImport } from '../model/TorrentImport';
+import { AboutPanel } from '../components/AboutPanel';
 
 interface FileItem { name: string; path: string; directory: boolean; size: number; modified?: number }
 interface TextPart { value: string; link: boolean }
@@ -88,8 +89,11 @@ struct Index {
   private subscriptions: SubscriptionService = new SubscriptionService(this.subscriptionState);
   @State showSubscription: boolean = false;
   @State subscriptionBackRequest: number = 0;
+  @State showAbout: boolean = false;
+  @State aboutBackRequest: number = 0;
 
   onBackPress(): boolean {
+    if (this.showAbout) { this.aboutBackRequest++; return true; }
     if (this.playerSource) { this.playerCloseRequest++; return true; }
     if (this.showSubscription) { this.subscriptionBackRequest++; return true; }
     if (this.showAdd) { this.cancelAdd(); return true; }
@@ -479,6 +483,7 @@ struct Index {
               Text(this.subscriptionState.unlimited ? '无限添加下载任务' : '今日免费剩余 ' + this.subscriptionState.freeRemaining.toString() + ' / 3 次').fontSize(12).fontColor($r('app.color.text_secondary'))
               Text('订阅 8 元 / 30 天，以最近一次有效同步的服务端策略为准。').fontSize(12).fontColor($r('app.color.text_secondary'))
               }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor($r('app.color.card_background')).borderRadius(20)
+              Button('关于 BTmobie').width('100%').backgroundColor('#F39A56').onClick(() => { this.showAbout = true; })
             }.padding(16).width('100%').alignItems(HorizontalAlign.Start)
           }.layoutWeight(1)
         }
@@ -597,6 +602,9 @@ struct Index {
       }
       if (this.showSubscription) {
         SubscriptionPanel({ state: this.subscriptionState, service: this.subscriptions, backRequest: this.subscriptionBackRequest, onClose: () => { this.showSubscription = false; } })
+      }
+      if (this.showAbout) {
+        AboutPanel({ backRequest: this.aboutBackRequest, onClose: () => { this.showAbout = false; } })
       }
       if (this.removeTaskId) {
         Column({ space: 18 }) {

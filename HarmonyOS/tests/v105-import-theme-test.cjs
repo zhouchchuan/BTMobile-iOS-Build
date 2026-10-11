@@ -52,7 +52,7 @@ function method(name,next,deps){
   for(const f of ['ets/components/Player.ets','ets/components/ImageViewer.ets','ets/model/BackgroundTransfer.ets','ets/model/SubscriptionService.ets','ets/model/SubscriptionVault.ets','cpp/archive_engine.cpp']){
    if(fs.existsSync(path.join(prior,f)))assert(fs.readFileSync(path.join(prior,f)).equals(fs.readFileSync(path.join(root,f))),f+' must stay unchanged');
   }
-  assert.equal(fs.readFileSync(path.join(root,'cpp/bridge.cpp'),'utf8'),fs.readFileSync(path.join(prior,'cpp/bridge.cpp'),'utf8').replaceAll('1.0.4','1.0.5').replaceAll('HT1040','HT1050'));
+  assert.equal(fs.readFileSync(path.join(root,'cpp/bridge.cpp'),'utf8'),fs.readFileSync(path.join(prior,'cpp/bridge.cpp'),'utf8').replaceAll('1.0.4','1.0.6').replaceAll('HT1040','HT1060'));
  }
  console.log('PASS V1.0.5: bounded HTTP/file import, invalid responses, partial writes, owned-only cleanup, theme persistence/rollback/system mode, stale deletion race, shared admission and preserved stable services.');
 })().catch(e=>{console.error(e);process.exitCode=1});
